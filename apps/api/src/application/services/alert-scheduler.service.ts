@@ -72,7 +72,11 @@ export class AlertSchedulerService {
       })),
     };
 
-    await this.flightSearchQueue.add('search-flight', payload);
+    await this.flightSearchQueue.add('search-flight', payload, {
+      jobId: alert.id,
+      removeOnComplete: true,
+      removeOnFail: true,
+    });
 
     this.logger.log(`Alerta ${alert.id} encolada con ${tuples.length} combinaciones de fechas`);
     return 1;

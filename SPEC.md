@@ -31,7 +31,7 @@ El sistema monitoriza tarifas de forma asíncrona mediante workers con control d
 - **Capa de Inteligencia Artificial:** Firebase Genkit (TypeScript) integrado en NestJS para flujos de agentes y extracción de entidades con tipado estricto (Zod Schemas) y observabilidad de trazas.
 
 - **Integraciones Externas:**
-  - Amadeus for Developers API (o Duffel API) como proveedor de datos de vuelos.
+  - Ignav Flight API como proveedor de datos de vuelos.
   - Telegram Bot API (vía `telegraf`) para notificaciones push instantáneas.
 
 - **Infraestructura Local:** Docker Compose (PostgreSQL y Redis).
@@ -132,7 +132,7 @@ model Match {
 
 2. **Worker (`FlightSearchWorker`):**
    - Consume trabajos respetando un limitador de tasa (*Rate Limiter*: máx. 2 peticiones/segundo).
-   - Realiza la búsqueda a través del puerto `FlightSearchProvider` (implementado por `AmadeusAdapter`).
+   - Realiza la búsqueda a través del puerto `FlightSearchProvider` (implementado por `IgnavAdapter`).
    - Si el precio encontrado es menor o igual a `alert.maxPriceEur`:
      1. Inserta el registro en la tabla `Match`.
      2. Dispara el puerto `NotificationProvider` (implementado por `TelegramAdapter`).
@@ -142,5 +142,5 @@ model Match {
 
 ## 7. Alcance Estricto del MVP
 
-- **Incluido:** Autenticación por token, creación manual de alertas, creación por lenguaje natural con IA, worker en background con BullMQ, integración con Amadeus y alertas por Telegram.
+- **Incluido:** Autenticación por token, creación manual de alertas, creación por lenguaje natural con IA, worker en background con BullMQ, integración con Ignav y alertas por Telegram.
 - **Excluido:** Pasarelas de pago (Stripe), búsqueda multiciudad compleja, login social de terceros y scraping web.

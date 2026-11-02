@@ -5,7 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaService } from './infrastructure/database/prisma.service';
 import { TelegramAdapter } from './infrastructure/adapters/telegram.adapter';
-import { AmadeusAdapter } from './infrastructure/adapters/amadeus.adapter';
+import { IgnavAdapter } from './infrastructure/adapters/ignav.adapter';
 import { FlightSearchProcessorService } from './application/services/flight-search-processor.service';
 import { FlightSearchWorker } from './infrastructure/workers/flight-search.worker';
 import { AlertParserAgentService } from './application/services/alert-parser-agent.service';
@@ -38,14 +38,14 @@ import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
   providers: [
     PrismaService,
     TelegramAdapter,
-    AmadeusAdapter,
+    IgnavAdapter,
     AlertParserAgentService,
     {
       provide: FlightSearchProcessorService,
-      useFactory: (amadeus: AmadeusAdapter, telegram: TelegramAdapter, prisma: PrismaService) => {
-        return new FlightSearchProcessorService(amadeus, telegram, prisma);
+      useFactory: (ignav: IgnavAdapter, telegram: TelegramAdapter, prisma: PrismaService) => {
+        return new FlightSearchProcessorService(ignav, telegram, prisma);
       },
-      inject: [AmadeusAdapter, TelegramAdapter, PrismaService],
+      inject: [IgnavAdapter, TelegramAdapter, PrismaService],
     },
     FlightSearchWorker,
     FlightDateCalculatorService,

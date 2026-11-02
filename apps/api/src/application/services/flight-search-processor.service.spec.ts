@@ -150,5 +150,27 @@ describe('FlightSearchProcessorService', () => {
       expect(mockPrisma.match.create).toHaveBeenCalled();
       expect(mockNotification.sendNotification).not.toHaveBeenCalled();
     });
+
+    it('EDGE CASE: Should skip processing if alert is no longer ACTIVE when job starts', async () => {
+      mockPrisma.alert.findUnique = jest.fn().mockResolvedValue({ status: 'TRIGGERED' });
+
+      const payload: FlightSearchJobPayload = {
+        alertId: 'alert-123',
+        userId: 'user-123',
+        telegramChatId: 'chat-123',
+        originIata: 'MAD',
+        destinationIata: 'LON',
+        maxPriceEur: 100,
+        dateTuples: [
+          { departureDate: '2026-11-01', returnDate: '2026-11-04' },
+        ],
+      };
+
+      await processor.processJob(payload);
+
+      expect(mockFlightSearch.searchFlights).not.toHaveBeenCalled();
+      expect(mockPrisma.match.create).not.toHaveBeenCalled();
+      expect(mockNotification.sendNotification).not.toHaveBeenCalled();
+    });
   });
 });

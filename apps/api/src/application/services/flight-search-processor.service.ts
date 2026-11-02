@@ -24,6 +24,16 @@ export class FlightSearchProcessorService {
   ) {}
 
   async processJob(jobData: FlightSearchJobPayload): Promise<void> {
+    if (this.prismaService.alert?.findUnique) {
+      const currentAlert = await this.prismaService.alert.findUnique({
+        where: { id: jobData.alertId },
+        select: { status: true },
+      });
+      if (currentAlert && currentAlert.status !== 'ACTIVE') {
+        return;
+      }
+    }
+
     const foundDeals: FlightSearchResult[] = [];
 
     for (const tuple of jobData.dateTuples) {

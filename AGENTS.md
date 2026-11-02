@@ -34,7 +34,7 @@ La lógica de negocio (cálculo de fechas, validación de alertas, mapeo de resp
 ## 3. Patrones de Arquitectura en NestJS (Puertos y Adaptadores)
 * Separa los módulos en capas claras:
   - `domain/`: Interfaces de proveedores (puertos) y entidades puras.
-  - `infrastructure/`: Implementaciones concretas (adaptadores de Amadeus, Telegram, Prisma).
+  - `infrastructure/`: Implementaciones concretas (adaptadores de Ignav, Telegram, Prisma).
   - `application/`: Servicios que orquestan los casos de uso.
 * Valida todas las peticiones con DTOs utilizando `class-validator` y `class-transformer`.
 * Maneja siempre las variables de entorno a través de `ConfigService`.
