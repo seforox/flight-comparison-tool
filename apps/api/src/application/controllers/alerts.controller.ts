@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards, NotFoundException } from '@nestjs/common';
 import { CreateAlertDto } from '../../domain/dtos/create-alert.dto';
 import { UpdateAlertStatusDto } from '../../domain/dtos/update-alert-status.dto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
@@ -36,7 +36,8 @@ export class AlertsController {
   }
 
   @Post(':id/check')
-  async triggerCheck(@Param('id') id: string) {
+  async triggerCheck(@Request() req: any, @Param('id') id: string) {
+    await this.ensureOwnership(id, req.user.id);
     const jobsEnqueued = await this.alertScheduler.enqueueAlert(id);
     return { alertId: id, jobsEnqueued };
   }
@@ -46,22 +47,46 @@ export class AlertsController {
     const userId = req.user.id;
     return this.prisma.alert.findMany({
       where: { userId },
-      include: { matches: true }, // Incluir las coincidencias como indica el SPEC
+      include: { matches: true },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   @Patch(':id/status')
-  async updateStatus(@Param('id') id: string, @Body() updateStatusDto: UpdateAlertStatusDto) {
-    return this.prisma.alert.update({
+  async updateStatus(@Request() req: any, @Param('id') id: string, @Body() updateStatusDto: UpdateAlertStatusDto) {
+    await this.ensureOwnership(id, req.user.id);
+
+    const updated = await this.prisma.alert.update({
       where: { id },
       data: { status: updateStatusDto.status as any },
     });
+
+    if (updateStatusDto.status !== 'ACTIVE') {
+      await this.alertScheduler.cancelAlertJobs(id);
+    } else {
+      await this.alertScheduler.enqueueAlert(id);
+    }
+
+    return updated;
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string) {
+  async remove(@Request() req: any, @Param('id') id: string) {
+    await this.ensureOwnership(id, req.user.id);
+    await this.alertScheduler.cancelAlertJobs(id);
+
     return this.prisma.alert.delete({
       where: { id },
     });
+  }
+
+  private async ensureOwnership(alertId: string, userId: string): Promise<void> {
+    const alert = await this.prisma.alert.findFirst({
+      where: { id: alertId, userId },
+      select: { id: true },
+    });
+    if (!alert) {
+      throw new NotFoundException('Alerta no encontrada o no pertenece al usuario autenticado');
+    }
   }
 }

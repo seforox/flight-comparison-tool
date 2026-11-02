@@ -83,6 +83,18 @@ export class AlertSchedulerService {
     return 1;
   }
 
+  async cancelAlertJobs(alertId: string): Promise<void> {
+    try {
+      const job = await this.flightSearchQueue.getJob(alertId);
+      if (job) {
+        await job.remove();
+        this.logger.log(`Trabajo en cola eliminado para la alerta ${alertId}`);
+      }
+    } catch (error) {
+      this.logger.warn(`No se pudo eliminar el trabajo en cola de la alerta ${alertId}: ${error}`);
+    }
+  }
+
   @Cron(process.env.ALERT_CRON_SCHEDULE || '0 */6 * * *')
   async handleCron(): Promise<void> {
     this.logger.log('Ejecutando Cron Job de revisión de alertas activas...');

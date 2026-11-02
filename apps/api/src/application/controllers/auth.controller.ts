@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Patch, Request, UnauthorizedException, ConflictException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Request, UnauthorizedException, ConflictException, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
@@ -61,6 +61,25 @@ export class AuthController {
       await this.tokenBlacklist.blacklistToken(token, req.user?.exp);
     }
     return { message: 'Sesión cerrada correctamente' };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  async getProfile(@Request() req: any) {
+    const userId = req.user.id;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        telegramChatId: true,
+        createdAt: true,
+      },
+    });
+    if (!user) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+    return user;
   }
 
   @UseGuards(JwtAuthGuard)
