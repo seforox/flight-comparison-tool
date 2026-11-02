@@ -2,12 +2,15 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaService } from './infrastructure/database/prisma.service';
 import { TelegramAdapter } from './infrastructure/adapters/telegram.adapter';
 import { AmadeusAdapter } from './infrastructure/adapters/amadeus.adapter';
 import { FlightSearchProcessorService } from './application/services/flight-search-processor.service';
 import { FlightSearchWorker } from './infrastructure/workers/flight-search.worker';
 import { AlertParserAgentService } from './application/services/alert-parser-agent.service';
+import { AlertSchedulerService } from './application/services/alert-scheduler.service';
+import { FlightDateCalculatorService } from './domain/services/flight-date-calculator.service';
 import { AlertsController } from './application/controllers/alerts.controller';
 import { AgentController } from './application/controllers/agent.controller';
 import { AuthController } from './application/controllers/auth.controller';
@@ -15,10 +18,11 @@ import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret_dont_use_in_prod',
-      signOptions: { expiresIn: process.env.JWT_EXPIRATION || '7d' },
+      signOptions: { expiresIn: (process.env.JWT_EXPIRATION || '7d') as any },
     }),
     BullModule.forRoot({
       connection: {
@@ -44,6 +48,8 @@ import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
       inject: [AmadeusAdapter, TelegramAdapter, PrismaService],
     },
     FlightSearchWorker,
+    FlightDateCalculatorService,
+    AlertSchedulerService,
     JwtStrategy,
   ],
 })

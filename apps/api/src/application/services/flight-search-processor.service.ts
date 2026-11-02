@@ -1,5 +1,10 @@
-import { FlightSearchProvider } from '../../domain/interfaces/flight-search.provider';
+import { FlightSearchProvider, FlightSearchResult } from '../../domain/interfaces/flight-search.provider';
 import { NotificationProvider } from '../../domain/interfaces/notification.provider';
+
+export interface FlightDateTuplePayload {
+  departureDate: string;
+  returnDate: string;
+}
 
 export interface FlightSearchJobPayload {
   alertId: string;
@@ -7,9 +12,8 @@ export interface FlightSearchJobPayload {
   telegramChatId: string | null;
   originIata: string;
   destinationIata: string;
-  departureDate: string;
-  returnDate: string;
   maxPriceEur: number;
+  dateTuples: FlightDateTuplePayload[];
 }
 
 export class FlightSearchProcessorService {
@@ -20,38 +24,54 @@ export class FlightSearchProcessorService {
   ) {}
 
   async processJob(jobData: FlightSearchJobPayload): Promise<void> {
-    const results = await this.flightSearchProvider.searchFlights({
-      originIata: jobData.originIata,
-      destinationIata: jobData.destinationIata,
-      departureDate: jobData.departureDate,
-      returnDate: jobData.returnDate,
-    });
+    const foundDeals: FlightSearchResult[] = [];
 
-    if (!results || results.length === 0) {
-      return;
-    }
-
-    const validMatches = results.filter(f => f.foundPriceEur <= jobData.maxPriceEur);
-
-    if (validMatches.length > 0) {
-      validMatches.sort((a, b) => a.foundPriceEur - b.foundPriceEur);
-      const bestMatch = validMatches[0];
-
-      await this.prismaService.match.create({
-        data: {
-          alertId: jobData.alertId,
-          departureDate: new Date(bestMatch.departureDate),
-          returnDate: new Date(bestMatch.returnDate),
-          foundPriceEur: bestMatch.foundPriceEur,
-          airlineCode: bestMatch.airlineCode,
-          bookingUrl: bestMatch.bookingUrl,
-        }
+    for (const tuple of jobData.dateTuples) {
+      const results = await this.flightSearchProvider.searchFlights({
+        originIata: jobData.originIata,
+        destinationIata: jobData.destinationIata,
+        departureDate: tuple.departureDate,
+        returnDate: tuple.returnDate,
       });
 
-      if (jobData.telegramChatId) {
-        const message = `¡Vuelo encontrado! ${jobData.originIata} - ${jobData.destinationIata} por solo ${bestMatch.foundPriceEur} EUR.`;
-        await this.notificationProvider.sendNotification(jobData.telegramChatId, message);
+      if (!results || results.length === 0) {
+        continue;
       }
+
+      const validMatches = results.filter(f => f.foundPriceEur <= jobData.maxPriceEur);
+
+      if (validMatches.length > 0) {
+        validMatches.sort((a, b) => a.foundPriceEur - b.foundPriceEur);
+        const bestMatch = validMatches[0];
+
+        await this.prismaService.match.create({
+          data: {
+            alertId: jobData.alertId,
+            departureDate: new Date(bestMatch.departureDate),
+            returnDate: new Date(bestMatch.returnDate),
+            foundPriceEur: bestMatch.foundPriceEur,
+            airlineCode: bestMatch.airlineCode,
+            bookingUrl: bestMatch.bookingUrl,
+          },
+        });
+
+        foundDeals.push(bestMatch);
+      }
+    }
+
+    if (foundDeals.length > 0 && jobData.telegramChatId) {
+      const lines = foundDeals.map(deal => {
+        const airline = deal.airlineCode || 'Desconocida';
+        return `📅 ${deal.departureDate} ➔ ${deal.returnDate}\n💰 ${deal.foundPriceEur} EUR | 🏢 Aerolínea: ${airline}`;
+      });
+
+      const message = [
+        `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (Máx: ${jobData.maxPriceEur} EUR)`,
+        '',
+        ...lines.join('\n\n').split('\n'),
+      ].join('\n');
+
+      await this.notificationProvider.sendNotification(jobData.telegramChatId, message);
     }
   }
 }

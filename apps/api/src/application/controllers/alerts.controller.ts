@@ -2,17 +2,21 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards }
 import { CreateAlertDto } from '../../domain/dtos/create-alert.dto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
+import { AlertSchedulerService } from '../services/alert-scheduler.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('alerts')
 export class AlertsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alertScheduler: AlertSchedulerService,
+  ) {}
 
   @Post()
   async create(@Request() req: any, @Body() createAlertDto: CreateAlertDto) {
     const userId = req.user.id; // Ya viene 100% seguro desde el JWT
 
-    return this.prisma.alert.create({
+    const alert = await this.prisma.alert.create({
       data: {
         userId,
         originIata: createAlertDto.originIata,
@@ -24,6 +28,15 @@ export class AlertsController {
         endDate: new Date(createAlertDto.endDate),
       },
     });
+
+    await this.alertScheduler.enqueueAlert(alert.id);
+    return alert;
+  }
+
+  @Post(':id/check')
+  async triggerCheck(@Param('id') id: string) {
+    const jobsEnqueued = await this.alertScheduler.enqueueAlert(id);
+    return { alertId: id, jobsEnqueued };
   }
 
   @Get()

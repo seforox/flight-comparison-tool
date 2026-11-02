@@ -1,5 +1,5 @@
 import { FlightSearchProcessorService, FlightSearchJobPayload } from './flight-search-processor.service';
-import { FlightSearchProvider, FlightSearchResult } from '../../domain/interfaces/flight-search.provider';
+import { FlightSearchProvider } from '../../domain/interfaces/flight-search.provider';
 import { NotificationProvider } from '../../domain/interfaces/notification.provider';
 
 describe('FlightSearchProcessorService', () => {
@@ -31,51 +31,56 @@ describe('FlightSearchProcessorService', () => {
   });
 
   describe('processJob', () => {
-    it('should create Match and notify if found flight price is <= maxPriceEur', async () => {
+    it('should evaluate multiple date tuples, create Matches and send a SINGLE aggregated Telegram message with dates and airlines', async () => {
       const payload: FlightSearchJobPayload = {
         alertId: 'alert-123',
         userId: 'user-123',
         telegramChatId: 'chat-123',
         originIata: 'MAD',
         destinationIata: 'LON',
-        departureDate: '2026-11-01',
-        returnDate: '2026-11-04',
-        maxPriceEur: 100, // Umbral de 100 EUR
+        maxPriceEur: 100,
+        dateTuples: [
+          { departureDate: '2026-11-02', returnDate: '2026-11-04' },
+          { departureDate: '2026-11-09', returnDate: '2026-11-11' },
+        ],
       };
 
-      const searchResult: FlightSearchResult[] = [
-        {
-          departureDate: '2026-11-01',
-          returnDate: '2026-11-04',
-          foundPriceEur: 80, // Por debajo del umbral!
-          airlineCode: 'IB',
-          bookingUrl: 'http://book.com'
-        }
-      ];
-
-      mockFlightSearch.searchFlights.mockResolvedValue(searchResult);
+      mockFlightSearch.searchFlights
+        .mockResolvedValueOnce([
+          {
+            departureDate: '2026-11-02',
+            returnDate: '2026-11-04',
+            foundPriceEur: 45.5,
+            airlineCode: 'FR',
+            bookingUrl: 'http://book.com/1',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            departureDate: '2026-11-09',
+            returnDate: '2026-11-11',
+            foundPriceEur: 80,
+            airlineCode: 'IB',
+            bookingUrl: 'http://book.com/2',
+          },
+        ]);
 
       await processor.processJob(payload);
 
-      expect(mockFlightSearch.searchFlights).toHaveBeenCalledWith({
-        originIata: 'MAD',
-        destinationIata: 'LON',
-        departureDate: '2026-11-01',
-        returnDate: '2026-11-04',
-      });
+      expect(mockFlightSearch.searchFlights).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.match.create).toHaveBeenCalledTimes(2);
 
-      expect(mockPrisma.match.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          alertId: 'alert-123',
-          foundPriceEur: 80,
-          airlineCode: 'IB'
-        })
-      });
-
-      expect(mockNotification.sendNotification).toHaveBeenCalledWith(
-        'chat-123',
-        expect.stringContaining('80')
-      );
+      // Debe enviar UN SOLO mensaje con ambas fechas y aerolíneas
+      expect(mockNotification.sendNotification).toHaveBeenCalledTimes(1);
+      const sentMessage = mockNotification.sendNotification.mock.calls[0][1];
+      expect(sentMessage).toContain('2026-11-02');
+      expect(sentMessage).toContain('2026-11-04');
+      expect(sentMessage).toContain('FR');
+      expect(sentMessage).toContain('45.5');
+      expect(sentMessage).toContain('2026-11-09');
+      expect(sentMessage).toContain('2026-11-11');
+      expect(sentMessage).toContain('IB');
+      expect(sentMessage).toContain('80');
     });
 
     it('EDGE CASE: Should NOT create Match or notify if flight price > maxPriceEur', async () => {
@@ -85,22 +90,21 @@ describe('FlightSearchProcessorService', () => {
         telegramChatId: 'chat-123',
         originIata: 'MAD',
         destinationIata: 'LON',
-        departureDate: '2026-11-01',
-        returnDate: '2026-11-04',
-        maxPriceEur: 50, // Umbral de 50 EUR
+        maxPriceEur: 50,
+        dateTuples: [
+          { departureDate: '2026-11-01', returnDate: '2026-11-04' },
+        ],
       };
 
-      const searchResult: FlightSearchResult[] = [
+      mockFlightSearch.searchFlights.mockResolvedValue([
         {
           departureDate: '2026-11-01',
           returnDate: '2026-11-04',
-          foundPriceEur: 80, // Por encima del umbral!
+          foundPriceEur: 80,
           airlineCode: 'IB',
-          bookingUrl: 'http://book.com'
-        }
-      ];
-
-      mockFlightSearch.searchFlights.mockResolvedValue(searchResult);
+          bookingUrl: 'http://book.com',
+        },
+      ]);
 
       await processor.processJob(payload);
 
@@ -112,30 +116,29 @@ describe('FlightSearchProcessorService', () => {
       const payload: FlightSearchJobPayload = {
         alertId: 'alert-123',
         userId: 'user-123',
-        telegramChatId: null, // Sin Telegram
+        telegramChatId: null,
         originIata: 'MAD',
         destinationIata: 'LON',
-        departureDate: '2026-11-01',
-        returnDate: '2026-11-04',
         maxPriceEur: 100,
+        dateTuples: [
+          { departureDate: '2026-11-01', returnDate: '2026-11-04' },
+        ],
       };
 
-      const searchResult: FlightSearchResult[] = [
+      mockFlightSearch.searchFlights.mockResolvedValue([
         {
           departureDate: '2026-11-01',
           returnDate: '2026-11-04',
           foundPriceEur: 80,
           airlineCode: 'IB',
-          bookingUrl: 'http://book.com'
-        }
-      ];
-
-      mockFlightSearch.searchFlights.mockResolvedValue(searchResult);
+          bookingUrl: 'http://book.com',
+        },
+      ]);
 
       await processor.processJob(payload);
 
-      expect(mockPrisma.match.create).toHaveBeenCalled(); // DB sí
-      expect(mockNotification.sendNotification).not.toHaveBeenCalled(); // Notificación no
+      expect(mockPrisma.match.create).toHaveBeenCalled();
+      expect(mockNotification.sendNotification).not.toHaveBeenCalled();
     });
   });
 });
