@@ -1,4 +1,4 @@
-# 06. Guía de Pruebas con Postman / cURL
+# 07. Guía de Pruebas con Postman / cURL
 
 Todos los endpoints asumen que el servidor NestJS está corriendo en `http://localhost:3001`.
 
@@ -138,14 +138,65 @@ curl -X POST http://localhost:3001/alerts/<ID_DE_LA_ALERTA>/check \
 
 ---
 
-## 3. Agente IA (`/agent`)
+## 3. Chatbot Agente IA Multi-Skill (`/agent`)
 
-### Extraer alerta desde lenguaje natural
+### A) Flujo Búsqueda Definida Directa (`DEFINED_SEARCH`) + Confirmación
+
+**Paso 1: Enviar la petición completa**
 ```bash
-curl -X POST http://localhost:3001/agent/parse-alert \
+curl -X POST http://localhost:3001/agent/chat \
   -H "Authorization: Bearer <TU_TOKEN_JWT>" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 75 euros entre el 2026-11-01 y el 2026-11-30"
+    "sessionId": "sesion-directa-1",
+    "prompt": "Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30"
+  }'
+```
+
+**Paso 2: Confirmar para crear en BD y encolar en BullMQ automáticamente**
+```bash
+curl -X POST http://localhost:3001/agent/chat \
+  -H "Authorization: Bearer <TU_TOKEN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "sesion-directa-1",
+    "prompt": "Sí, lánzala"
+  }'
+```
+
+---
+
+### B) Flujo Recomendador (`DESTINATION_RECOMMENDER` ➔ `DEFINED_SEARCH` ➔ Confirmación)
+
+**Turno 1: Pedir 5 recomendaciones (playa, montaña o barato)**
+```bash
+curl -X POST http://localhost:3001/agent/chat \
+  -H "Authorization: Bearer <TU_TOKEN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "sesion-recomendador-1",
+    "prompt": "Recomiéndame sitios baratos con playa para escaparme"
+  }'
+```
+
+**Turno 2: Elegir uno de los 5 destinos e indicar fechas y presupuesto**
+```bash
+curl -X POST http://localhost:3001/agent/chat \
+  -H "Authorization: Bearer <TU_TOKEN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "sesion-recomendador-1",
+    "prompt": "Me quedo con Palma de Mallorca (PMI) saliendo desde MAD de viernes a domingo para 2 personas por menos de 90 euros entre 2026-11-01 y 2026-11-30"
+  }'
+```
+
+**Turno 3: Confirmar creación y lanzamiento automático**
+```bash
+curl -X POST http://localhost:3001/agent/chat \
+  -H "Authorization: Bearer <TU_TOKEN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "sesion-recomendador-1",
+    "prompt": "Sí, adelante"
   }'
 ```

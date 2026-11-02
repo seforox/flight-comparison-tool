@@ -98,4 +98,4 @@ flight-comparison-tool/
      cd apps/api && pnpm test
      ```
 
-La API estará disponible en `http://localhost:3001`. Consulta la carpeta [`docs/`](./docs/) (especialmente [`docs/06-guia-de-pruebas-postman-curl.md`](./docs/06-guia-de-pruebas-postman-curl.md)) para ver todos los ejemplos de peticiones `cURL`.
+La API estará disponible en `http://localhost:3001`. Consulta la carpeta [`docs/`](./docs/) (especialmente [`docs/06-agente-conversacional-y-skills.md`](./docs/06-agente-conversacional-y-skills.md) y [`docs/07-guia-de-pruebas-postman-curl.md`](./docs/07-guia-de-pruebas-postman-curl.md)) para ver todos los detalles del agente y ejemplos de peticiones `cURL`.
