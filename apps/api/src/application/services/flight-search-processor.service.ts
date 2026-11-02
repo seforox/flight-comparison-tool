@@ -59,19 +59,27 @@ export class FlightSearchProcessorService {
       }
     }
 
-    if (foundDeals.length > 0 && jobData.telegramChatId) {
-      const lines = foundDeals.map(deal => {
-        const airline = deal.airlineCode || 'Desconocida';
-        return `📅 ${deal.departureDate} ➔ ${deal.returnDate}\n💰 ${deal.foundPriceEur} EUR | 🏢 Aerolínea: ${airline}`;
+    if (foundDeals.length > 0) {
+      if (jobData.telegramChatId) {
+        const lines = foundDeals.map(deal => {
+          const airline = deal.airlineCode || 'Desconocida';
+          return `📅 ${deal.departureDate} ➔ ${deal.returnDate}\n💰 ${deal.foundPriceEur} EUR | 🏢 Aerolínea: ${airline}`;
+        });
+
+        const message = [
+          `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (Máx: ${jobData.maxPriceEur} EUR)`,
+          '',
+          ...lines.join('\n\n').split('\n'),
+        ].join('\n');
+
+        await this.notificationProvider.sendNotification(jobData.telegramChatId, message);
+      }
+
+      // Solo pasar a TRIGGERED si se ha encontrado al menos un resultado válido
+      await this.prismaService.alert.update({
+        where: { id: jobData.alertId },
+        data: { status: 'TRIGGERED' },
       });
-
-      const message = [
-        `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (Máx: ${jobData.maxPriceEur} EUR)`,
-        '',
-        ...lines.join('\n\n').split('\n'),
-      ].join('\n');
-
-      await this.notificationProvider.sendNotification(jobData.telegramChatId, message);
     }
   }
 }

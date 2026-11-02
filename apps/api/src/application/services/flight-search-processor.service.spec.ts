@@ -21,6 +21,9 @@ describe('FlightSearchProcessorService', () => {
       match: {
         create: jest.fn(),
       },
+      alert: {
+        update: jest.fn(),
+      },
     };
 
     processor = new FlightSearchProcessorService(
@@ -81,6 +84,12 @@ describe('FlightSearchProcessorService', () => {
       expect(sentMessage).toContain('2026-11-11');
       expect(sentMessage).toContain('IB');
       expect(sentMessage).toContain('80');
+
+      // Y debe cambiar el estado de la alerta a TRIGGERED al terminar el recorrido
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith({
+        where: { id: 'alert-123' },
+        data: { status: 'TRIGGERED' },
+      });
     });
 
     it('EDGE CASE: Should NOT create Match or notify if flight price > maxPriceEur', async () => {
@@ -110,6 +119,7 @@ describe('FlightSearchProcessorService', () => {
 
       expect(mockPrisma.match.create).not.toHaveBeenCalled();
       expect(mockNotification.sendNotification).not.toHaveBeenCalled();
+      expect(mockPrisma.alert.update).not.toHaveBeenCalled();
     });
 
     it('EDGE CASE: Should create Match but NOT notify if telegramChatId is null', async () => {

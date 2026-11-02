@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards } from '@nestjs/common';
 import { CreateAlertDto } from '../../domain/dtos/create-alert.dto';
+import { UpdateAlertStatusDto } from '../../domain/dtos/update-alert-status.dto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
 import { AlertSchedulerService } from '../services/alert-scheduler.service';
@@ -49,10 +50,10 @@ export class AlertsController {
   }
 
   @Patch(':id/status')
-  async updateStatus(@Param('id') id: string, @Body('status') status: 'ACTIVE' | 'PAUSED') {
+  async updateStatus(@Param('id') id: string, @Body() updateStatusDto: UpdateAlertStatusDto) {
     return this.prisma.alert.update({
       where: { id },
-      data: { status },
+      data: { status: updateStatusDto.status as any },
     });
   }
 

@@ -26,14 +26,36 @@ export class AlertSchedulerService {
       return 0;
     }
 
+    const now = new Date();
+    now.setUTCHours(0, 0, 0, 0);
+
+    // 1. Si la fecha fin ya expiró, marcar automáticamente como COMPLETED
+    if (new Date(alert.endDate) < now) {
+      await this.prisma.alert.update({
+        where: { id: alert.id },
+        data: { status: 'COMPLETED' as any },
+      });
+      this.logger.log(`Alerta ${alert.id} marcada como COMPLETED automáticamente (endDate expirada).`);
+      return 0;
+    }
+
+    // Calcular desde hoy o desde startDate (la que sea posterior) para no buscar fechas en el pasado
+    const effectiveStartDate = new Date(alert.startDate) > now ? new Date(alert.startDate) : now;
+
     const tuples = this.dateCalculator.generateDateTuples(
-      alert.startDate,
+      effectiveStartDate,
       alert.endDate,
       alert.departureDay,
       alert.returnDay,
     );
 
+    // 2. Si ya no quedan combinaciones futuras posibles antes del endDate, marcar como COMPLETED
     if (tuples.length === 0) {
+      await this.prisma.alert.update({
+        where: { id: alert.id },
+        data: { status: 'COMPLETED' as any },
+      });
+      this.logger.log(`Alerta ${alert.id} marcada como COMPLETED automáticamente (sin combinaciones futuras posibles).`);
       return 0;
     }
 

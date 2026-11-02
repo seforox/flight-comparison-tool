@@ -11,6 +11,7 @@ enum AlertStatus {
   ACTIVE
   PAUSED
   TRIGGERED
+  COMPLETED
 }
 
 model User {
