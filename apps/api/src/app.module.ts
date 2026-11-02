@@ -15,6 +15,7 @@ import { AlertsController } from './application/controllers/alerts.controller';
 import { AgentController } from './application/controllers/agent.controller';
 import { AuthController } from './application/controllers/auth.controller';
 import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
+import { TokenBlacklistService } from './infrastructure/auth/token-blacklist.service';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
     FlightSearchWorker,
     FlightDateCalculatorService,
     AlertSchedulerService,
+    TokenBlacklistService,
     JwtStrategy,
   ],
 })
