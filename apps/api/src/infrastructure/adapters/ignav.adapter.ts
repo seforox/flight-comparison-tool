@@ -10,13 +10,14 @@ export class IgnavAdapter implements FlightSearchProvider {
 
   async searchFlights(query: FlightSearchQuery): Promise<FlightSearchResult[]> {
     const useMock = process.env.USE_IGNAV_MOCK !== 'false';
+    const adults = query.adults ?? 1;
 
     if (useMock) {
-      this.logger.log(`[MOCK MODE] Buscando vuelos simulados en Ignav para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate})`);
+      this.logger.log(`[MOCK MODE] Buscando vuelos simulados en Ignav para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate}, ${adults} pax)`);
       return this.getMockedResponse(query);
     }
 
-    this.logger.log(`[REAL MODE] Ejecutando llamada real a Ignav API para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate})`);
+    this.logger.log(`[REAL MODE] Ejecutando llamada real a Ignav API para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate}, ${adults} pax)`);
     return this.getRealResponse(query);
   }
 
@@ -34,7 +35,7 @@ export class IgnavAdapter implements FlightSearchProvider {
           destination: query.destinationIata,
           departure_date: query.departureDate,
           return_date: query.returnDate,
-          adults: 1,
+          adults: query.adults ?? 1,
           cabin_class: 'economy',
           market: 'ES',
         },
@@ -95,17 +96,38 @@ export class IgnavAdapter implements FlightSearchProvider {
         const price = Number(item.price?.amount);
         if (isNaN(price) || price <= 0) return null;
 
+        const segments: any[] = item.outbound?.segments || [];
+        const stopsCount = segments.length > 0 ? segments.length - 1 : 0;
+        const isDirect = stopsCount === 0;
+
+        const rawDepTime: string | undefined = segments[0]?.departure_time_local;
+        const departureTime = rawDepTime && rawDepTime.includes('T')
+          ? rawDepTime.split('T')[1].slice(0, 5)
+          : null;
+
+        const durationMinutes: number | null =
+          typeof item.outbound?.duration_minutes === 'number'
+            ? item.outbound.duration_minutes
+            : null;
+
         const carrier =
-          item.outbound?.segments?.[0]?.marketing_carrier_code ||
           item.outbound?.carrier ||
+          segments[0]?.operating_carrier_name ||
+          segments[0]?.marketing_carrier_code ||
           null;
+
+        const adults = query.adults ?? 1;
 
         return {
           departureDate: query.departureDate,
           returnDate: query.returnDate,
           foundPriceEur: price,
           airlineCode: carrier,
-          bookingUrl: `https://www.google.com/travel/flights?q=Flights%20to%20${query.destinationIata}%20from%20${query.originIata}%20on%20${query.departureDate}%20through%20${query.returnDate}`,
+          isDirect,
+          stopsCount,
+          departureTime,
+          durationMinutes,
+          bookingUrl: `https://www.google.com/travel/flights?q=Flights%20to%20${query.destinationIata}%20from%20${query.originIata}%20on%20${query.departureDate}%20through%20${query.returnDate}%20for%20${adults}%20adults`,
         };
       })
       .filter((f: any) => f !== null) as FlightSearchResult[];

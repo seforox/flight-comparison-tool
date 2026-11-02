@@ -22,6 +22,7 @@ export const IGNAV_MOCKS = {
               flight_number: '1234',
               operating_carrier_name: 'Ryanair',
               departure_airport: 'MAD',
+              departure_time_local: '2026-11-02T08:30:00',
               arrival_airport: 'STN',
             },
           ],

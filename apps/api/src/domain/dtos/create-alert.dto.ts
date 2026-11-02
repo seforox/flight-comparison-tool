@@ -1,4 +1,4 @@
-import { IsString, IsInt, Min, Max, IsNumber, IsDateString } from 'class-validator';
+import { IsString, IsInt, Min, Max, IsNumber, IsDateString, IsOptional } from 'class-validator';
 
 export class CreateAlertDto {
   @IsString()
@@ -16,6 +16,12 @@ export class CreateAlertDto {
   @Min(1)
   @Max(7)
   returnDay!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  adults?: number;
 
   @IsNumber()
   @Min(0)

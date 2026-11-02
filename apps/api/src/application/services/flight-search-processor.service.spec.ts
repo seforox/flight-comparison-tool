@@ -41,6 +41,7 @@ describe('FlightSearchProcessorService', () => {
         telegramChatId: 'chat-123',
         originIata: 'MAD',
         destinationIata: 'LON',
+        adults: 2,
         maxPriceEur: 100,
         dateTuples: [
           { departureDate: '2026-11-02', returnDate: '2026-11-04' },
@@ -54,7 +55,11 @@ describe('FlightSearchProcessorService', () => {
             departureDate: '2026-11-02',
             returnDate: '2026-11-04',
             foundPriceEur: 45.5,
-            airlineCode: 'FR',
+            airlineCode: 'Ryanair',
+            isDirect: true,
+            stopsCount: 0,
+            departureTime: '08:30',
+            durationMinutes: 150,
             bookingUrl: 'http://book.com/1',
           },
         ])
@@ -63,7 +68,11 @@ describe('FlightSearchProcessorService', () => {
             departureDate: '2026-11-09',
             returnDate: '2026-11-11',
             foundPriceEur: 80,
-            airlineCode: 'IB',
+            airlineCode: 'Iberia',
+            isDirect: false,
+            stopsCount: 1,
+            departureTime: '14:15',
+            durationMinutes: 310,
             bookingUrl: 'http://book.com/2',
           },
         ]);
@@ -73,17 +82,26 @@ describe('FlightSearchProcessorService', () => {
       expect(mockFlightSearch.searchFlights).toHaveBeenCalledTimes(2);
       expect(mockPrisma.match.create).toHaveBeenCalledTimes(2);
 
-      // Debe enviar UN SOLO mensaje con ambas fechas y aerolíneas
+      // Debe enviar UN SOLO mensaje con ambas fechas, aerolíneas, escalas, hora, duración y enlaces
       expect(mockNotification.sendNotification).toHaveBeenCalledTimes(1);
       const sentMessage = mockNotification.sendNotification.mock.calls[0][1];
+      expect(sentMessage).toContain('2 pasajeros');
       expect(sentMessage).toContain('2026-11-02');
       expect(sentMessage).toContain('2026-11-04');
-      expect(sentMessage).toContain('FR');
+      expect(sentMessage).toContain('Ryanair');
+      expect(sentMessage).toContain('Directo');
+      expect(sentMessage).toContain('08:30');
+      expect(sentMessage).toContain('2h 30m');
       expect(sentMessage).toContain('45.5');
+      expect(sentMessage).toContain('http://book.com/1');
       expect(sentMessage).toContain('2026-11-09');
       expect(sentMessage).toContain('2026-11-11');
-      expect(sentMessage).toContain('IB');
+      expect(sentMessage).toContain('Iberia');
+      expect(sentMessage).toContain('Con escala (1)');
+      expect(sentMessage).toContain('14:15');
+      expect(sentMessage).toContain('5h 10m');
       expect(sentMessage).toContain('80');
+      expect(sentMessage).toContain('http://book.com/2');
 
       // Y debe cambiar el estado de la alerta a TRIGGERED al terminar el recorrido
       expect(mockPrisma.alert.update).toHaveBeenCalledWith({

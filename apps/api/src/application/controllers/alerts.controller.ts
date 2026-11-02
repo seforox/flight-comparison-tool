@@ -24,10 +24,11 @@ export class AlertsController {
         destinationIata: createAlertDto.destinationIata,
         departureDay: createAlertDto.departureDay,
         returnDay: createAlertDto.returnDay,
+        adults: createAlertDto.adults ?? 1,
         maxPriceEur: createAlertDto.maxPriceEur,
         startDate: new Date(createAlertDto.startDate),
         endDate: new Date(createAlertDto.endDate),
-      },
+      } as any,
     });
 
     await this.alertScheduler.enqueueAlert(alert.id);

@@ -65,6 +65,7 @@ export class AlertSchedulerService {
       telegramChatId: alert.user.telegramChatId,
       originIata: alert.originIata,
       destinationIata: alert.destinationIata,
+      adults: (alert as any).adults ?? 1,
       maxPriceEur: Number(alert.maxPriceEur),
       dateTuples: tuples.map(t => ({
         departureDate: t.departureDate.toISOString().split('T')[0],

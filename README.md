@@ -1,6 +1,6 @@
-# Flight Comparison tool - Comparador Inteligente de Vuelos Recurrentes
+# Flight Comparison Tool - Comparador Inteligente de Vuelos Recurrentes
 
-Plataforma SaaS diseñada para detectar oportunidades de vuelo basadas en patrones semanales flexibles (ej. viajar siempre de lunes a miércoles) dentro de un rango temporal y con un límite de presupuesto. Incorpora un agente de Inteligencia Artificial que procesa peticiones en lenguaje natural y orquesta la monitorización asíncrona mediante tareas en segundo plano y avisos por Telegram.
+Plataforma SaaS diseñada para detectar oportunidades de vuelo basadas en patrones semanales flexibles (ej. viajar siempre de lunes a miércoles) dentro de un rango temporal, número de pasajeros y un límite de presupuesto. Incorpora un agente de Inteligencia Artificial que procesa peticiones en lenguaje natural y orquesta la monitorización asíncrona mediante tareas en segundo plano y avisos enriquecidos por Telegram.
 
 Proyecto desarrollado como Trabajo de Fin de Máster (TFM) en Desarrollo de Software con Inteligencia Artificial.
 
@@ -9,112 +9,93 @@ Proyecto desarrollado como Trabajo de Fin de Máster (TFM) en Desarrollo de Soft
 ## Stack Tecnológico
 
 * **Frontend:** Next.js (React 19, App Router), TypeScript, Tailwind CSS, shadcn/ui.
-* **Backend:** NestJS, TypeScript, arquitectura modular con puertos y adaptadores.
-* **Base de Datos & ORM:** PostgreSQL, Prisma ORM.
-* **Colas y Asincronía:** Redis, BullMQ (gestión de rate-limiting y reintentos automáticos).
-* **Inteligencia Artificial:** Vercel AI SDK / LangChain.js con Function Calling estructurado (Zod Schema).
-* **Servicios Externos:** Amadeus for Developers API (datos de vuelos), Telegram Bot API (notificaciones push).
-* **Infraestructura:** Docker y Docker Compose.
+* **Backend:** NestJS, TypeScript, Arquitectura Hexagonal (Puertos y Adaptadores).
+* **Base de Datos & ORM:** PostgreSQL, Prisma ORM (con control histórico de migraciones).
+* **Colas, Asincronía y Sesiones:** Redis, BullMQ (rate-limiting, deduplicación por alerta, `@nestjs/schedule` Cron Job y lista negra de tokens JWT).
+* **Inteligencia Artificial:** Firebase Genkit (Google AI / Gemini) con Structured Outputs.
+* **Servicios Externos:** Ignav Flight API (datos de vuelos en vivo y modo Mock configurable), Telegram Bot API vía `telegraf` (notificaciones push).
+* **Infraestructura:** Docker y Docker Compose (monorepo gestionado con `pnpm`).
 
 ---
 
 ## Estructura del Proyecto
 
 ```text
-flight-radar-ai/
+flight-comparison-tool/
 ├── apps/
-│   ├── api/                      # Backend NestJS
-│   │   ├── src/
-│   │   │   ├── modules/
-│   │   │   │   ├── auth/         # Autenticación y gestión de usuarios
-│   │   │   │   ├── alerts/       # Lógica y CRUD de alertas de vuelo
-│   │   │   │   ├── flight-search/# Integración con APIs de vuelos y adaptadores
-│   │   │   │   ├── scheduler/    # Workers y colas BullMQ
-│   │   │   │   ├── notifications/# Adaptador del bot de Telegram
-│   │   │   │   └── agent/        # Agente de lenguaje natural y structured outputs
-│   │   │   ├── prisma/           # Esquema y migraciones de base de datos
-│   │   │   └── main.ts
-│   │   └── test/
-│   └── web/                      # Frontend Next.js
-│       ├── src/
-│       │   ├── app/              # Rutas y páginas (App Router)
-│       │   ├── components/       # Componentes de UI (shadcn/ui)
-│       │   └── lib/              # Cliente de API y utilidades
-├── docker-compose.yml            # Servicios de soporte (Postgres y Redis)
-├── SPEC.md                       # Especificación técnica
-├── AGENTS.md                     # Reglas de desarrollo y TDD
+│   ├── api/                                      # Backend NestJS (Puerto 3001)
+│   │   ├── prisma/
+│   │   │   ├── migrations/                       # Histórico SQL de migraciones
+│   │   │   └── schema.prisma                     # Esquema de datos (User, Alert, Match)
+│   │   └── src/
+│   │       ├── domain/                           # Capa de Dominio (Puertos, DTOs y Calculadora de Fechas)
+│   │       ├── application/                      # Casos de Uso (Controladores, Scheduler, Processor, Agente IA)
+│   │       ├── infrastructure/                   # Adaptadores (IgnavAdapter, TelegramAdapter, Prisma, Auth JWT/Redis, Worker)
+│   │       ├── app.module.ts
+│   │       └── main.ts
+│   └── web/                                      # Frontend Next.js (Puerto 3000)
+├── docs/                                         # Documentación técnica paso a paso y guía de pruebas cURL
+├── docker-compose.yml                            # Servicios de soporte (PostgreSQL y Redis)
+├── pnpm-workspace.yaml                           # Configuración del monorepo pnpm
+├── SPEC.md                                       # Especificación técnica del sistema
+├── AGENTS.md                                     # Reglas de desarrollo, arquitectura y TDD
 └── README.md
 ```
 
 ## Funcionalidades Principales
 
-1. **Gestión de Alertas por Patrones:** Configuración de alertas basadas en días fijos de la semana (ej. ida en lunes, vuelta en miércoles) con presupuesto máximo garantizado.
+1. **Gestión de Alertas por Patrones y Pasajeros:** Configuración de alertas basadas en días fijos de la semana (ej. ida en lunes, vuelta en miércoles), número de pasajeros (`adults`) y presupuesto máximo (`maxPriceEur`).
+2. **Ciclo de Vida Inteligente (`ACTIVE`, `PAUSED`, `TRIGGERED`, `COMPLETED`):**
+   - Pausa manual para ahorrar cuota y silenciar avisos.
+   - Paso automático a `TRIGGERED` al encontrar ofertas válidas para evitar spam.
+   - Expiración automática a `COMPLETED` cuando el rango de fechas finaliza (o marcado manual por el usuario).
+3. **Creación Asistida por IA:** Creación de alertas mediante lenguaje natural parseadas por un agente conversacional.
+4. **Motor Asíncrono y Modo Mock/Real:** Búsqueda inmediata al crear la alerta y recurrente mediante Cron Job configurable (`ALERT_CRON_SCHEDULE`), con conmutador `USE_IGNAV_MOCK` para alternar entre pruebas locales gratuitas y llamadas reales a Ignav API.
+5. **Notificaciones Push Unificadas en Telegram:** Envío de un único mensaje resumen por alerta con fechas, precio, nombre completo de la aerolínea, indicador de vuelo directo o con escalas, hora de salida, duración aproximada y enlace directo a la reserva.
+6. **Seguridad JWT + Blacklist en Redis:** Registro y login con `bcryptjs`, protección por Guards, validación estricta con `ValidationPipe` y cierre de sesión real (`POST /auth/logout`) con revocación en Redis.
 
-2. **Creación Asistida por IA:** Creación de alertas mediante lenguaje natural (ej. *"Búscame vuelos de Madrid a Londres de lunes a miércoles por menos de 80 € en mayo"*), parseadas automáticamente por un LLM con validación de tipos.
-
-3. **Motor Asíncrono de Monitorización:** Búsqueda recurrente en segundo plano con control estricto de llamadas concurrentes para respetar las cuotas de las APIs de aviación.
-
-4. **Notificaciones Push Inmediatas:** Envío instantáneo de alertas a través de Telegram con enlace de reserva y resumen del vuelo.
+---
 
 ## Instalación y Ejecución
 
 ### Requisitos Previos
 
-- Node.js v20+ y npm/pnpm.
-- Docker y Docker Compose instalados y en ejecución.
-- Cuenta de desarrollador en [Amadeus for Developers](https://developers.amadeus.com/) (para obtener credenciales de prueba).
-- Un bot creado en Telegram a través de [@BotFather](https://t.me/BotFather) (para obtener el token).
+- Node.js v20+ y `pnpm` instalado.
+- Docker y Docker Compose en ejecución.
+- API Key de [Ignav](https://ignav.com/) (incluye 1.000 búsquedas gratuitas; opcional si se usa `USE_IGNAV_MOCK="true"`).
+- Un bot creado en Telegram a través de [@BotFather](https://t.me/BotFather).
 
 ### Pasos de Instalación
 
 1. **Clonar el repositorio:**
-
    ```bash
    git clone <URL_DEL_REPOSITORIO>
-   cd flight-radar-ai
+   cd flight-comparison-tool
    ```
 
-2. **Configurar variables de entorno:** Copia el archivo de plantilla y completa tus credenciales:
+2. **Configurar variables de entorno en `apps/api/.env`:**
+   Configura `DATABASE_URL`, `REDIS_HOST`, `TELEGRAM_BOT_TOKEN`, `IGNAV_API_KEY`, `USE_IGNAV_MOCK`, `JWT_SECRET` y `ALERT_CRON_SCHEDULE`.
 
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Levantar la infraestructura (Base de Datos y Redis):**
-
+3. **Levantar la infraestructura (PostgreSQL y Redis):**
    ```bash
    docker compose up -d
    ```
 
-4. **Instalar dependencias y ejecutar migraciones:**
-
+4. **Instalar dependencias y aplicar migraciones:**
    ```bash
-   npm install
+   pnpm install
    cd apps/api
-   npx prisma migrate dev --name init
-   npx prisma db seed # Opcional: genera el usuario de prueba
+   npx prisma migrate deploy
    ```
 
 5. **Iniciar en modo desarrollo:**
-
    - **Backend (NestJS):**
-
      ```bash
-     cd apps/api && npm run start:dev
+     cd apps/api && pnpm start:dev
+     ```
+   - **Ejecutar tests unitarios (Jest):**
+     ```bash
+     cd apps/api && pnpm test
      ```
 
-   - **Frontend (Next.js):**
-
-     ```bash
-     cd apps/web && npm run dev
-     ```
-
-La aplicación web estará accesible en `http://localhost:3000` y la API en `http://localhost:4000/api`.
-
-## Usuario y Contraseña de Prueba
-
-Para evaluar la aplicación de inmediato sin necesidad de completar el registro manual:
-
-- **Email:** `demo@flightradar.ai`
-- **Contraseña:** `Demo1234!`
-- **Chat ID de Telegram de prueba:** Puedes vincular tu propio ID en la sección de perfil o usar el bot de pruebas configurado en el archivo `.env`.
+La API estará disponible en `http://localhost:3001`. Consulta la carpeta [`docs/`](./docs/) (especialmente [`docs/06-guia-de-pruebas-postman-curl.md`](./docs/06-guia-de-pruebas-postman-curl.md)) para ver todos los ejemplos de peticiones `cURL`.

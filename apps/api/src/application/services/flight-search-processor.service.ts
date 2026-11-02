@@ -12,6 +12,7 @@ export interface FlightSearchJobPayload {
   telegramChatId: string | null;
   originIata: string;
   destinationIata: string;
+  adults?: number;
   maxPriceEur: number;
   dateTuples: FlightDateTuplePayload[];
 }
@@ -22,6 +23,15 @@ export class FlightSearchProcessorService {
     private readonly notificationProvider: NotificationProvider,
     private readonly prismaService: any,
   ) {}
+
+  private formatDuration(minutes?: number | null): string {
+    if (!minutes || minutes <= 0) return 'N/D';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  }
 
   async processJob(jobData: FlightSearchJobPayload): Promise<void> {
     if (this.prismaService.alert?.findUnique) {
@@ -35,6 +45,7 @@ export class FlightSearchProcessorService {
     }
 
     const foundDeals: FlightSearchResult[] = [];
+    const adults = jobData.adults ?? 1;
 
     for (const tuple of jobData.dateTuples) {
       const results = await this.flightSearchProvider.searchFlights({
@@ -42,6 +53,7 @@ export class FlightSearchProcessorService {
         destinationIata: jobData.destinationIata,
         departureDate: tuple.departureDate,
         returnDate: tuple.returnDate,
+        adults,
       });
 
       if (!results || results.length === 0) {
@@ -73,11 +85,25 @@ export class FlightSearchProcessorService {
       if (jobData.telegramChatId) {
         const lines = foundDeals.map(deal => {
           const airline = deal.airlineCode || 'Desconocida';
-          return `📅 ${deal.departureDate} ➔ ${deal.returnDate}\n💰 ${deal.foundPriceEur} EUR | 🏢 Aerolínea: ${airline}`;
+          const stopInfo = deal.isDirect === false
+            ? `Con escala (${deal.stopsCount || 1})`
+            : 'Directo';
+          const depTimeInfo = deal.departureTime ? ` | 🕒 Salida: ${deal.departureTime}` : '';
+          const durationInfo = deal.durationMinutes
+            ? ` | ⏱️ Duración: ~${this.formatDuration(deal.durationMinutes)}`
+            : '';
+          const bookingLine = deal.bookingUrl ? `\n🔗 ${deal.bookingUrl}` : '';
+
+          return [
+            `📅 ${deal.departureDate} ➔ ${deal.returnDate}`,
+            `💰 ${deal.foundPriceEur} EUR | 🏢 Aerolínea: ${airline}`,
+            `✈️ ${stopInfo}${depTimeInfo}${durationInfo}${bookingLine}`,
+          ].join('\n');
         });
 
+        const paxLabel = adults === 1 ? '1 pasajero' : `${adults} pasajeros`;
         const message = [
-          `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (Máx: ${jobData.maxPriceEur} EUR)`,
+          `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (${paxLabel} | Máx: ${jobData.maxPriceEur} EUR)`,
           '',
           ...lines.join('\n\n').split('\n'),
         ].join('\n');
