@@ -69,6 +69,16 @@ const DAY_NAMES: Record<string, number> = {
   domingo: 7,
 };
 
+const DAY_LABELS: Record<number, string> = {
+  1: 'Lunes',
+  2: 'Martes',
+  3: 'Miércoles',
+  4: 'Jueves',
+  5: 'Viernes',
+  6: 'Sábado',
+  7: 'Domingo',
+};
+
 const MONTH_NAMES: Record<string, number> = {
   enero: 1,
   febrero: 2,
@@ -303,7 +313,9 @@ export class AlertParserAgentService {
         // Limpiar sesión tras crear la alerta
         this.sessions.delete(sessionId);
 
-        const reply = `🚀 ¡Perfecto! He creado y encolado tu alerta de ${fullData.originIata} a ${fullData.destinationIata} (máx. ${fullData.maxPriceEur} EUR para ${fullData.adults} pasajero(s)). En cuanto encontremos vuelos te avisaremos por Telegram.`;
+        const depName = this.getDayLabel(fullData.departureDay);
+        const retName = this.getDayLabel(fullData.returnDay);
+        const reply = `🚀 ¡Perfecto! He creado y encolado tu alerta de ${fullData.originIata} a ${fullData.destinationIata} (salida los ${depName} y regreso los ${retName}, máx. ${fullData.maxPriceEur} EUR para ${fullData.adults} pasajero(s)). En cuanto encontremos vuelos te avisaremos por Telegram.`;
         return {
           sessionId,
           activeSkill: 'DEFINED_SEARCH',
@@ -410,10 +422,12 @@ export class AlertParserAgentService {
     if (this.isDraftComplete(state.draft)) {
       state.awaitingConfirmation = true;
       const fullData = this.toCompleteData(state.draft);
+      const depName = this.getDayLabel(fullData.departureDay);
+      const retName = this.getDayLabel(fullData.returnDay);
       const reply = [
         `✅ Ya tengo todos los datos para tu alerta:`,
         `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
-        `- **Días:** Salida día ${fullData.departureDay} / Regreso día ${fullData.returnDay}`,
+        `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
         `- **Pasajeros:** ${fullData.adults}`,
         `- **Presupuesto máx.:** ${fullData.maxPriceEur} EUR`,
         `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
@@ -467,6 +481,7 @@ ${this.skillsContent.DEFINED_SEARCH}
 ${this.skillsContent.DESTINATION_RECOMMENDER}
 
 Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}
+IMPORTANTE: En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
 Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 { "activeSkill": "DEFINED_SEARCH" | "DESTINATION_RECOMMENDER", "draft": {...}, "recommendations": [...] | null, "reply": "..." }`;
 
@@ -497,7 +512,18 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         if (this.isDraftComplete(state.draft)) {
           state.awaitingConfirmation = true;
           const fullData = this.toCompleteData(state.draft);
-          const confirmReply = `${parsed.reply || 'Tengo todos los datos.'}\n\n¿Deseas que lance y active esta alerta ahora mismo?`;
+          const depName = this.getDayLabel(fullData.departureDay);
+          const retName = this.getDayLabel(fullData.returnDay);
+          const confirmReply = [
+            `✅ Ya tengo todos los datos para tu alerta:`,
+            `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
+            `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
+            `- **Pasajeros:** ${fullData.adults}`,
+            `- **Presupuesto máx.:** ${fullData.maxPriceEur} EUR`,
+            `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
+            '',
+            `¿Deseas que lance y active esta alerta ahora mismo?`,
+          ].join('\n');
           return {
             sessionId,
             activeSkill: 'DEFINED_SEARCH',
@@ -508,11 +534,12 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           };
         }
 
+        const sanitizedReply = this.replaceDayNumbersInText(parsed.reply || '');
         return {
           sessionId,
           activeSkill: state.activeSkill,
-          reply: parsed.reply,
-          clarificationMessage: parsed.reply,
+          reply: sanitizedReply,
+          clarificationMessage: sanitizedReply,
           isComplete: false,
           awaitingConfirmation: false,
           recommendations: parsed.recommendations || undefined,
@@ -701,6 +728,16 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (draft.maxPriceEur === undefined) missing.push('presupuesto máximo en euros');
     if (!draft.startDate || !draft.endDate) missing.push('fechas de inicio y fin (YYYY-MM-DD)');
     return missing.join(', ');
+  }
+
+  private getDayLabel(day: number): string {
+    return DAY_LABELS[day] || `Día ${day}`;
+  }
+
+  private replaceDayNumbersInText(text: string): string {
+    return text.replace(/\b(?:d[ií]a\s*)?([1-7])\b(?=\s*(?:\(|de la semana|salida|regreso))/gi, (_, num) => {
+      return DAY_LABELS[Number(num)] || num;
+    });
   }
 
   private isAffirmative(text: string): boolean {

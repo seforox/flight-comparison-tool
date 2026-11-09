@@ -1,50 +1,193 @@
 "use client";
 
-import React, { useState } from "react";
-import { api, FlightAlert, AlertStatus, WEEKDAYS, AIRPORTS_CATALOG } from "@/lib/api";
+import React, { useState, useMemo } from "react";
+import {
+  api,
+  FlightAlert,
+  FlightMatch,
+  AlertStatus,
+  WEEKDAYS,
+  AIRPORTS_CATALOG,
+} from "@/lib/api";
 
 interface AlertCardProps {
   alert: FlightAlert;
   onRefresh: () => void;
 }
 
-const STATUS_BADGES: Record<
+export const STATUS_PILLS: Record<
   AlertStatus,
   { label: string; classes: string; dot: string }
 > = {
-  ACTIVE: {
-    label: "Activa · Monitorizando",
-    classes: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-    dot: "bg-sky-400 animate-pulse",
-  },
   TRIGGERED: {
-    label: "¡Chollo Encontrado! 🔔",
-    classes: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-    dot: "bg-emerald-400",
+    label: "Vuelo encontrado",
+    classes: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    dot: "bg-emerald-500",
   },
-  PAUSED: {
-    label: "En Pausa",
-    classes: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-    dot: "bg-amber-400",
+  ACTIVE: {
+    label: "Buscando",
+    classes: "bg-blue-50 text-blue-600 border-blue-200",
+    dot: "bg-blue-500 animate-pulse",
   },
   COMPLETED: {
-    label: "Completada / Expirada",
-    classes: "bg-slate-800 text-slate-400 border-slate-700",
-    dot: "bg-slate-500",
+    label: "Completada",
+    classes: "bg-slate-100 text-slate-600 border-slate-200",
+    dot: "bg-slate-400",
+  },
+  PAUSED: {
+    label: "En pausa",
+    classes: "bg-amber-50 text-amber-700 border-amber-200",
+    dot: "bg-amber-500",
   },
 };
 
+const SHORT_MONTHS = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+
+export function formatShortDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.split("T")[0];
+  return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
+}
+
+function generateAlertDateTuples(
+  startDateIso: string,
+  endDateIso: string,
+  departureDay: number,
+  returnDay: number
+): Array<{ departureDate: Date; returnDate: Date; depKey: string }> {
+  const tuples: Array<{ departureDate: Date; returnDate: Date; depKey: string }> =
+    [];
+
+  const current = new Date(startDateIso);
+  current.setUTCHours(0, 0, 0, 0);
+
+  const end = new Date(endDateIso);
+  end.setUTCHours(23, 59, 59, 999);
+
+  if (isNaN(current.getTime()) || isNaN(end.getTime())) return tuples;
+
+  while (current <= end && tuples.length < 12) {
+    const jsDay = current.getUTCDay();
+    const isoDay = jsDay === 0 ? 7 : jsDay;
+
+    if (isoDay === departureDay) {
+      const returnDate = new Date(current);
+      let daysToAdd = returnDay - departureDay;
+      if (daysToAdd <= 0) {
+        daysToAdd += 7;
+      }
+      returnDate.setUTCDate(returnDate.getUTCDate() + daysToAdd);
+
+      if (returnDate <= end) {
+        const depCopy = new Date(current);
+        tuples.push({
+          departureDate: depCopy,
+          returnDate,
+          depKey: depCopy.toISOString().split("T")[0],
+        });
+      }
+    }
+
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return tuples;
+}
+
+export function getBestPriceForAlert(alert: FlightAlert): number {
+  if (alert.matches && alert.matches.length > 0) {
+    return Math.min(...alert.matches.map((m) => Number(m.foundPriceEur)));
+  }
+  return Number(alert.maxPriceEur);
+}
+
 export function AlertCard({ alert, onRefresh }: AlertCardProps) {
   const [busy, setBusy] = useState(false);
-  const [showMatches, setShowMatches] = useState(alert.status === "TRIGGERED");
-
-  const getDayLabel = (day: number) =>
-    WEEKDAYS.find((d) => d.value === day)?.label || `Día ${day}`;
+  const [selectedTupleIdx, setSelectedTupleIdx] = useState(0);
 
   const getCityName = (iata: string) =>
     AIRPORTS_CATALOG.find((a) => a.iata === iata)?.city || iata;
 
-  const badge = STATUS_BADGES[alert.status] || STATUS_BADGES.ACTIVE;
+  const getDayLabel = (day: number) =>
+    WEEKDAYS.find((d) => d.value === day)?.label || `Día ${day}`;
+
+  const getDayShort = (day: number) =>
+    WEEKDAYS.find((d) => d.value === day)?.short || `D${day}`;
+
+  const pill = STATUS_PILLS[alert.status] || STATUS_PILLS.ACTIVE;
+
+  const bestPrice = useMemo(() => {
+    if (alert.matches && alert.matches.length > 0) {
+      return Math.min(...alert.matches.map((m) => Number(m.foundPriceEur)));
+    }
+    return null;
+  }, [alert.matches]);
+
+  const dateTuples = useMemo(() => {
+    const rawTuples = generateAlertDateTuples(
+      alert.startDate,
+      alert.endDate,
+      alert.departureDay,
+      alert.returnDay
+    );
+
+    const matchesByDepDate = new Map<string, FlightMatch>();
+    for (const m of alert.matches || []) {
+      const key = m.departureDate.split("T")[0];
+      const existing = matchesByDepDate.get(key);
+      if (!existing || Number(m.foundPriceEur) < Number(existing.foundPriceEur)) {
+        matchesByDepDate.set(key, m);
+      }
+    }
+
+    return rawTuples.map((t) => {
+      const match = matchesByDepDate.get(t.depKey) || null;
+      const depShort = `${getDayShort(alert.departureDay)} ${formatShortDate(
+        t.departureDate.toISOString()
+      )}`;
+      const retShort = `${getDayShort(alert.returnDay)} ${formatShortDate(
+        t.returnDate.toISOString()
+      )}`;
+
+      return {
+        depKey: t.depKey,
+        rangeLabel: `${formatShortDate(
+          t.departureDate.toISOString()
+        )} – ${formatShortDate(t.returnDate.toISOString())}`,
+        fullPatternLabel: `${depShort} → ${retShort}`,
+        subBarLabel: `${t.departureDate.getUTCDate()}–${t.returnDate.getUTCDate()} ${
+          SHORT_MONTHS[t.departureDate.getUTCMonth()]
+        }`,
+        match,
+        price: match ? Number(match.foundPriceEur) : null,
+      };
+    });
+  }, [alert]);
+
+  const activeTuple =
+    dateTuples[Math.min(selectedTupleIdx, Math.max(0, dateTuples.length - 1))] ||
+    null;
+
+  const targetPrice = Number(alert.maxPriceEur);
+  const maxChartValue = useMemo(() => {
+    const prices = dateTuples
+      .map((t) => t.price ?? targetPrice)
+      .concat([targetPrice]);
+    return Math.max(...prices, 1);
+  }, [dateTuples, targetPrice]);
 
   const handleStatusChange = async (newStatus: AlertStatus) => {
     setBusy(true);
@@ -76,186 +219,341 @@ export function AlertCard({ alert, onRefresh }: AlertCardProps) {
     }
   };
 
-  const formatDate = (iso: string) => iso.split("T")[0];
-
   return (
-    <div
-      className={`rounded-2xl border p-5 transition-all ${
-        alert.status === "TRIGGERED"
-          ? "bg-slate-900/90 border-emerald-500/40 shadow-lg shadow-emerald-500/5"
-          : "bg-slate-900/60 border-slate-800/90 hover:border-slate-700"
-      }`}
+    <section
+      aria-label={`Detalle de la alerta ${getCityName(alert.originIata)} a ${getCityName(
+        alert.destinationIata
+      )}`}
+      className="space-y-4"
     >
-      {/* Cabecera de la tarjeta */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="text-lg font-bold text-white tracking-tight">
-              {getCityName(alert.originIata)}{" "}
-              <span className="font-mono text-xs text-sky-400">
-                ({alert.originIata})
+      {/* Tarjeta principal de detalle de la ruta seleccionada */}
+      <div className="bg-white rounded-3xl border border-slate-200/80 p-4 sm:p-6 shadow-[0_10px_30px_rgba(11,37,69,0.04)]">
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+          <div className="min-w-0">
+            {/* Píldoras superiores */}
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${pill.classes}`}
+              >
+                <span aria-hidden="true" className={`w-2 h-2 rounded-full ${pill.dot}`} />
+                {pill.label}
               </span>
-            </span>
-            <span className="text-slate-500">➔</span>
-            <span className="text-lg font-bold text-white tracking-tight">
-              {getCityName(alert.destinationIata)}{" "}
-              <span className="font-mono text-xs text-sky-400">
-                ({alert.destinationIata})
+              <span className="px-3 py-1 rounded-full bg-sky-50 text-[#0077b6] border border-sky-200/70 text-xs font-semibold">
+                <span aria-hidden="true">📅 </span>
+                {getDayLabel(alert.departureDay)} ➔{" "}
+                {getDayLabel(alert.returnDay)}
               </span>
-            </span>
+            </div>
+
+            {/* Título grande: Madrid -> Londres */}
+            <h3 className="text-xl sm:text-3xl font-extrabold text-[#0b2545] tracking-tight flex flex-wrap items-center gap-2">
+              <span>{getCityName(alert.originIata)}</span>
+              <span aria-hidden="true" className="text-[#0096c7] font-normal">
+                →
+              </span>
+              <span className="sr-only">a</span>
+              <span>{getCityName(alert.destinationIata)}</span>
+            </h3>
+
+            {/* Subtítulo técnico */}
+            <p className="text-xs sm:text-sm text-slate-600 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-mono font-semibold text-slate-700">
+                {alert.originIata} – {alert.destinationIata}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                {formatShortDate(alert.startDate)} –{" "}
+                {formatShortDate(alert.endDate)}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                <span aria-hidden="true">👥 </span>
+                {alert.adults ?? 1}{" "}
+                {(alert.adults ?? 1) === 1 ? "pasajero" : "pasajeros"}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>{dateTuples.length} fechas monitorizadas</span>
+            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 mt-1.5">
-            <span>
-              📅 Ida: <strong className="text-slate-200">{getDayLabel(alert.departureDay)}</strong> · Vuelta:{" "}
-              <strong className="text-slate-200">{getDayLabel(alert.returnDay)}</strong>
-            </span>
-            <span>
-              👥 <strong className="text-slate-200">{alert.adults ?? 1}</strong>{" "}
-              {(alert.adults ?? 1) === 1 ? "pasajero" : "pasajeros"}
-            </span>
-            <span>
-              🗓️ {formatDate(alert.startDate)} al {formatDate(alert.endDate)}
-            </span>
+          {/* Cajas de MEJOR PRECIO y OBJETIVO (responsivas en móvil: 2 columnas iguales) */}
+          <div className="grid grid-cols-2 sm:flex items-center gap-2.5 sm:gap-3 w-full md:w-auto shrink-0">
+            <div className="bg-[#f4f7fb] border border-slate-200/60 rounded-2xl px-4 py-3 text-right sm:min-w-[125px]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                MEJOR PRECIO
+              </span>
+              <span className="text-lg sm:text-2xl font-extrabold text-[#0b2545] mt-0.5 block">
+                {bestPrice !== null ? `${bestPrice} €` : "— €"}
+              </span>
+            </div>
+
+            <div className="bg-[#eff8ff] border border-cyan-200/60 rounded-2xl px-4 py-3 text-right sm:min-w-[125px]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                OBJETIVO MÁX.
+              </span>
+              <span className="text-lg sm:text-2xl font-extrabold text-[#0096c7] mt-0.5 block">
+                {targetPrice} €
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Presupuesto y Badge de Estado */}
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 block">
-              Umbral Máx.
-            </span>
-            <span className="text-base font-bold text-white">
-              {Number(alert.maxPriceEur)} €
-            </span>
-          </div>
-
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${badge.classes}`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-            {badge.label}
-          </span>
-        </div>
-      </div>
-
-      {/* Barra de acciones e historial de Matches */}
-      <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        {/* Barra de botones de acción */}
+        <div
+          role="group"
+          aria-label="Acciones de la alerta"
+          className="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center gap-2"
+        >
           <button
             type="button"
-            onClick={() => setShowMatches(!showMatches)}
-            className="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-xs font-medium text-slate-200 transition cursor-pointer"
+            disabled={busy}
+            onClick={handleManualCheck}
+            className="px-3.5 py-2 rounded-xl bg-[#f4f7fb] hover:bg-slate-200/70 border border-slate-200/80 text-xs font-semibold text-[#0b2545] flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
           >
-            {showMatches ? "▾ Ocultar" : "▸ Ver"} chollos detectados (
-            {alert.matches?.length || 0})
+            <span aria-hidden="true">🔄</span>
+            <span>{busy ? "Comprobando..." : "Actualizar tarifas"}</span>
           </button>
 
-          {alert.status === "ACTIVE" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleManualCheck}
-              className="px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-xs font-medium text-sky-300 transition cursor-pointer disabled:opacity-40"
-            >
-              🔍 Comprobar ahora
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {alert.status !== "ACTIVE" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => handleStatusChange("ACTIVE")}
-              className="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-xs font-medium transition cursor-pointer"
-            >
-              ▶ Reactivar
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={busy || alert.status === "ACTIVE"}
+            onClick={() => handleStatusChange("ACTIVE")}
+            className="px-3.5 py-2 rounded-xl bg-[#f4f7fb] hover:bg-blue-50 border border-slate-200/80 hover:border-blue-200 text-xs font-semibold text-[#0b2545] hover:text-blue-700 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
+          >
+            <span aria-hidden="true">🧭</span>
+            <span>Seguir buscando</span>
+          </button>
 
           {alert.status === "ACTIVE" && (
             <button
               type="button"
               disabled={busy}
               onClick={() => handleStatusChange("PAUSED")}
-              className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-medium transition cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-[#f4f7fb] hover:bg-amber-50 border border-slate-200/80 hover:border-amber-200 text-xs font-semibold text-[#0b2545] hover:text-amber-700 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
             >
-              ⏸ Pausar
-            </button>
-          )}
-
-          {alert.status !== "COMPLETED" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => handleStatusChange("COMPLETED")}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer"
-            >
-              ✓ Ya compré el vuelo
+              <span aria-hidden="true">⏸</span>
+              <span>Pausar</span>
             </button>
           )}
 
           <button
             type="button"
+            disabled={busy || alert.status === "COMPLETED"}
+            onClick={() => handleStatusChange("COMPLETED")}
+            className="px-3.5 py-2 rounded-xl bg-[#f4f7fb] hover:bg-emerald-50 border border-slate-200/80 hover:border-emerald-200 text-xs font-semibold text-[#0b2545] hover:text-emerald-700 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
+          >
+            <span aria-hidden="true">📥</span>
+            <span>Completar</span>
+          </button>
+
+          <button
+            type="button"
             disabled={busy}
             onClick={handleDelete}
-            className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium transition cursor-pointer"
+            aria-label={`Eliminar alerta de ${getCityName(alert.originIata)} a ${getCityName(
+              alert.destinationIata
+            )}`}
+            className="px-3 py-2 rounded-xl hover:bg-rose-50 text-xs font-semibold text-rose-600 flex items-center gap-1 transition cursor-pointer sm:ml-auto"
           >
-            🗑 Eliminar
+            <span aria-hidden="true">🗑</span>
+            <span>Eliminar</span>
           </button>
         </div>
       </div>
 
-      {/* Lista desplegable de Matches encontrados */}
-      {showMatches && (
-        <div className="mt-3 pt-3 border-t border-slate-800/60 space-y-2">
-          {!alert.matches || alert.matches.length === 0 ? (
-            <div className="text-xs text-slate-500 py-2 text-center">
-              Aún no se han registrado vuelos por debajo de {Number(alert.maxPriceEur)} € para esta alerta.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {alert.matches.map((m) => (
-                <div
-                  key={m.id}
-                  className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-2"
+      {/* Tarjetas de las combinaciones de fechas generadas por (departureDay -> returnDay) */}
+      {dateTuples.length > 0 && (
+        <div
+          role="group"
+          aria-label="Combinaciones de fechas dentro del rango"
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
+        >
+          {dateTuples.map((tuple, idx) => {
+            const isSelected = idx === selectedTupleIdx;
+            const hasDeal = tuple.price !== null;
+            return (
+              <button
+                key={tuple.depKey}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => setSelectedTupleIdx(idx)}
+                className={`relative text-left rounded-3xl p-4 sm:p-5 transition-all cursor-pointer border ${
+                  isSelected
+                    ? "bg-[#0e2a47] border-[#0e2a47] text-white shadow-lg shadow-[#0e2a47]/15"
+                    : "bg-white border-slate-200/80 hover:border-cyan-400 text-[#0b2545] shadow-xs"
+                }`}
+              >
+                {hasDeal && !isSelected && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-4 right-4 w-2.5 h-2.5 rounded-full bg-[#00b4d8] ring-4 ring-cyan-100"
+                  />
+                )}
+                <span
+                  className={`text-sm font-bold block ${
+                    isSelected ? "text-white" : "text-[#0b2545]"
+                  }`}
                 >
-                  <div>
-                    <div className="text-xs font-semibold text-white">
-                      📅 {formatDate(m.departureDate)} ➔ {formatDate(m.returnDate)}
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">
-                      🏢 Aerolínea:{" "}
-                      <span className="text-slate-200 font-medium">
-                        {m.airlineCode || "Varios"}
-                      </span>
-                    </div>
-                  </div>
+                  {tuple.fullPatternLabel}
+                </span>
 
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-sm font-bold text-emerald-400">
-                      {Number(m.foundPriceEur)} €
-                    </span>
-                    {m.bookingUrl && (
-                      <a
-                        href={m.bookingUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-[11px] transition"
-                      >
-                        Reservar ↗
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                <span
+                  className={`text-[11px] block mt-3 ${
+                    isSelected ? "text-sky-200/80" : "text-slate-500"
+                  }`}
+                >
+                  {hasDeal ? "vuelo encontrado" : "objetivo máx."}
+                </span>
+                <span
+                  className={`text-xl font-extrabold block ${
+                    isSelected
+                      ? "text-[#18c1f0]"
+                      : hasDeal
+                      ? "text-emerald-600"
+                      : "text-slate-500"
+                  }`}
+                >
+                  {hasDeal ? `${tuple.price} €` : `≤ ${targetPrice} €`}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
-    </div>
+
+      {/* Gráfica comparativa por fechas para el patrón elegido + Enlaces de reserva */}
+      <div className="bg-white rounded-3xl border border-slate-200/80 p-4 sm:p-6 shadow-[0_10px_30px_rgba(11,37,69,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+          <div>
+            <h4 className="text-base font-bold text-[#0b2545]">
+              Comparativa de precios ({getDayLabel(alert.departureDay)} →{" "}
+              {getDayLabel(alert.returnDay)})
+            </h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Evolución de tarifas según los días seleccionados dentro de tu rango
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-[#0077b6] bg-sky-50 px-3 py-1 rounded-full border border-sky-200/60">
+            Umbral objetivo: {targetPrice} €
+          </span>
+        </div>
+
+        {dateTuples.length === 0 ? (
+          <div className="text-xs text-slate-500 py-8 text-center">
+            El rango de fechas seleccionado no contiene ninguna combinación de{" "}
+            {getDayLabel(alert.departureDay)} a {getDayLabel(alert.returnDay)}.
+          </div>
+        ) : (
+          <div className="overflow-x-auto pb-2">
+            <div
+              role="group"
+              aria-label="Gráfica de barras de precios por fecha"
+              className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4 items-end min-h-44 pt-4 px-1"
+            >
+              {dateTuples.map((tuple, idx) => {
+                const hasDeal = tuple.price !== null;
+                const val = tuple.price ?? targetPrice;
+                const heightPct = Math.max(
+                  35,
+                  Math.round((val / maxChartValue) * 100)
+                );
+                const isSelected = idx === selectedTupleIdx;
+
+                return (
+                  <button
+                    key={tuple.depKey}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`${tuple.fullPatternLabel}: ${
+                      hasDeal
+                        ? `vuelo encontrado por ${tuple.price} euros`
+                        : `sin oferta por debajo de ${targetPrice} euros`
+                    }`}
+                    onClick={() => setSelectedTupleIdx(idx)}
+                    className="flex flex-col items-center justify-end h-full group cursor-pointer p-1 rounded-xl"
+                  >
+                    <div className="w-full flex justify-center items-end h-32">
+                      <div
+                        style={{ height: `${heightPct}%` }}
+                        className={`w-9 sm:w-11 rounded-t-xl rounded-b-md transition-all ${
+                          hasDeal
+                            ? isSelected
+                              ? "bg-gradient-to-b from-[#00b4d8] to-[#0077b6] shadow-md shadow-cyan-500/30 ring-2 ring-[#0e2a47]/20"
+                              : "bg-gradient-to-b from-[#38bdf8] to-[#0284c7] opacity-90 group-hover:opacity-100"
+                            : "bg-slate-200 border border-dashed border-slate-300"
+                        }`}
+                      />
+                    </div>
+                    <span
+                      className={`text-xs font-extrabold mt-2.5 ${
+                        hasDeal ? "text-[#0077b6]" : "text-slate-500"
+                      }`}
+                    >
+                      {hasDeal ? `${tuple.price}€` : `>${targetPrice}€`}
+                    </span>
+                    <span className="text-[10px] font-bold uppercase text-[#0b2545] mt-0.5">
+                      {tuple.subBarLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Detalle de la combinación seleccionada */}
+        {activeTuple && activeTuple.match && (
+          <div className="mt-6 pt-5 border-t border-slate-100">
+            <div className="p-4 rounded-2xl bg-[#f0f9ff] border border-cyan-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#0077b6] block">
+                  OPCIÓN SELECCIONADA
+                </span>
+                <div className="text-sm font-extrabold text-[#0b2545] mt-0.5">
+                  <span aria-hidden="true">🛫 </span>
+                  {activeTuple.fullPatternLabel} ·{" "}
+                  <span className="text-[#0077b6]">
+                    {activeTuple.match.airlineCode || "Vuelo directo"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-3">
+                <span className="text-lg font-extrabold text-emerald-700">
+                  {Number(activeTuple.match.foundPriceEur)} €
+                </span>
+                {activeTuple.match.bookingUrl && (
+                  <a
+                    href={activeTuple.match.bookingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-full bg-gradient-to-r from-[#0e3968] to-[#00a8e8] hover:opacity-95 text-white font-semibold text-xs shadow-sm transition"
+                  >
+                    Reservar vuelo <span aria-hidden="true">↗</span>
+                    <span className="sr-only"> (se abre en una pestaña nueva)</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(!alert.matches || alert.matches.length === 0) && (
+          <div className="mt-5 pt-4 border-t border-slate-100 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Aún no se han detectado vuelos por debajo de {targetPrice} € en
+              las fechas de este rango.
+            </span>
+            <button
+              type="button"
+              onClick={handleManualCheck}
+              className="text-[#0077b6] font-semibold hover:underline cursor-pointer"
+            >
+              Comprobar ahora →
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

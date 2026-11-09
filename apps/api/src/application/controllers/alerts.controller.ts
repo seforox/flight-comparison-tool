@@ -38,6 +38,11 @@ export class AlertsController {
   @Post(':id/check')
   async triggerCheck(@Request() req: any, @Param('id') id: string) {
     await this.ensureOwnership(id, req.user.id);
+    await this.prisma.match.deleteMany({ where: { alertId: id } });
+    await this.prisma.alert.update({
+      where: { id },
+      data: { status: 'ACTIVE' as any },
+    });
     const jobsEnqueued = await this.alertScheduler.enqueueAlert(id);
     return { alertId: id, jobsEnqueued };
   }
