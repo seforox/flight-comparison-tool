@@ -14,6 +14,7 @@ import { FlightDateCalculatorService } from './domain/services/flight-date-calcu
 import { AlertsController } from './application/controllers/alerts.controller';
 import { AgentController } from './application/controllers/agent.controller';
 import { AuthController } from './application/controllers/auth.controller';
+import { AirportsController } from './application/controllers/airports.controller';
 import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
 import { TokenBlacklistService } from './infrastructure/auth/token-blacklist.service';
 
@@ -35,7 +36,7 @@ import { TokenBlacklistService } from './infrastructure/auth/token-blacklist.ser
       name: 'flight-search-queue',
     }),
   ],
-  controllers: [AlertsController, AgentController, AuthController],
+  controllers: [AlertsController, AgentController, AuthController, AirportsController],
   providers: [
     PrismaService,
     TelegramAdapter,

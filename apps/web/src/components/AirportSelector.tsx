@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useId } from "react";
-import { AIRPORTS_CATALOG } from "@/lib/api";
+import {
+  api,
+  AirportItem,
+  AIRPORTS_CATALOG,
+  getCachedAirport,
+} from "@/lib/api";
 
 interface AirportSelectorProps {
   label: string;
@@ -18,11 +23,78 @@ export function AirportSelector({
 }: AirportSelectorProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [airports, setAirports] = useState<AirportItem[]>(AIRPORTS_CATALOG);
+  const [totalInDb, setTotalInDb] = useState<number>(8021);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [selectedAirport, setSelectedAirport] = useState<AirportItem | undefined>(
+    () => getCachedAirport(value)
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
   const listboxId = useId();
 
-  const selectedAirport = AIRPORTS_CATALOG.find((a) => a.iata === value);
+  // Resolver el aeropuerto seleccionado desde caché o desde la tabla Airport en PostgreSQL
+  useEffect(() => {
+    if (!value) {
+      setSelectedAirport(undefined);
+      return;
+    }
+    const cached = getCachedAirport(value);
+    if (cached) {
+      setSelectedAirport(cached);
+      return;
+    }
+    let active = true;
+    api.airports.getByIata(value).then((found) => {
+      if (active && found) {
+        setSelectedAirport(found);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [value]);
+
+  // Consultar la tabla Airport de PostgreSQL cuando se abre el selector o cambia la búsqueda
+  useEffect(() => {
+    if (!open) return;
+
+    let active = true;
+    setLoading(true);
+
+    const timer = setTimeout(() => {
+      api.airports
+        .search(query, 60)
+        .then((res) => {
+          if (!active) return;
+          if (res && Array.isArray(res.items)) {
+            setAirports(res.items);
+            if (res.total) setTotalInDb(res.total);
+          }
+        })
+        .catch(() => {
+          if (!active) return;
+          const q = query.trim().toLowerCase();
+          setAirports(
+            AIRPORTS_CATALOG.filter(
+              (a) =>
+                a.city.toLowerCase().includes(q) ||
+                a.iata.toLowerCase().includes(q) ||
+                a.name.toLowerCase().includes(q) ||
+                a.country.toLowerCase().includes(q)
+            )
+          );
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 160);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [open, query]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -45,13 +117,6 @@ export function AirportSelector({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
-
-  const filtered = AIRPORTS_CATALOG.filter(
-    (a) =>
-      a.city.toLowerCase().includes(query.toLowerCase()) ||
-      a.iata.toLowerCase().includes(query.toLowerCase()) ||
-      a.country.toLowerCase().includes(query.toLowerCase())
-  );
 
   const customIataCandidate = query.trim().toUpperCase();
   const isCustomValid = /^[A-Z]{3}$/.test(customIataCandidate);
@@ -108,7 +173,7 @@ export function AirportSelector({
           id={listboxId}
           role="listbox"
           aria-labelledby={labelId}
-          className="absolute z-50 mt-1.5 w-full bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden"
+          className="absolute z-50 mt-1.5 w-full sm:min-w-[320px] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden"
         >
           <div className="p-2.5 border-b border-slate-100 bg-slate-50/60">
             <input
@@ -117,13 +182,29 @@ export function AirportSelector({
               aria-label={`Filtrar aeropuerto para ${label}`}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar ciudad o código IATA (ej. HND, ROM, LON)..."
+              placeholder="Ciudad, país o código IATA (ej. Estocolmo, NCE, HND)..."
               className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
             />
+            <div className="mt-1.5 px-1 flex items-center justify-between text-[10px] text-slate-500">
+              <span>
+                {loading
+                  ? "Buscando en base de datos..."
+                  : `${airports.length} mostrados · ${totalInDb.toLocaleString("es-ES")} aeropuertos IATA`}
+              </span>
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-[#0077b6] hover:underline font-semibold cursor-pointer"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-            {filtered.map((airport) => {
+          <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+            {airports.map((airport) => {
               const isSelected = airport.iata === value;
               return (
                 <button
@@ -132,6 +213,7 @@ export function AirportSelector({
                   role="option"
                   aria-selected={isSelected}
                   onClick={() => {
+                    setSelectedAirport(airport);
                     onChange(airport.iata);
                     setQuery("");
                     setOpen(false);
@@ -159,7 +241,7 @@ export function AirportSelector({
             })}
 
             {isCustomValid &&
-              !filtered.some((a) => a.iata === customIataCandidate) && (
+              !airports.some((a) => a.iata === customIataCandidate) && (
                 <button
                   type="button"
                   role="option"
@@ -172,7 +254,7 @@ export function AirportSelector({
                   className="w-full px-4 py-2.5 text-left bg-cyan-50/60 hover:bg-cyan-100/60 flex items-center justify-between transition cursor-pointer"
                 >
                   <span className="text-xs text-[#0077b6]">
-                    Usar código IATA personalizado:{" "}
+                    Usar código IATA:{" "}
                     <strong className="font-mono">{customIataCandidate}</strong>
                   </span>
                   <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-[#0b2545] font-mono text-xs font-bold">
@@ -181,10 +263,9 @@ export function AirportSelector({
                 </button>
               )}
 
-            {filtered.length === 0 && !isCustomValid && (
+            {!loading && airports.length === 0 && !isCustomValid && (
               <div className="p-3.5 text-center text-xs text-slate-500">
-                Sin coincidencias. Escribe 3 letras IATA (ej. BER) para usar
-                cualquier aeropuerto.
+                Sin coincidencias en los {totalInDb.toLocaleString("es-ES")} aeropuertos IATA.
               </div>
             )}
           </div>

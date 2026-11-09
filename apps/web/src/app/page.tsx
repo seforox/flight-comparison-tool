@@ -5,7 +5,7 @@ import {
   api,
   FlightAlert,
   UserProfile,
-  AIRPORTS_CATALOG,
+  getCachedAirport,
 } from "@/lib/api";
 import { AgentChatbot } from "@/components/AgentChatbot";
 import { CreateAlertForm } from "@/components/CreateAlertForm";
@@ -99,8 +99,29 @@ export default function DashboardPage() {
     }
   };
 
+  const [resolvedCities, setResolvedCities] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+    const codes = new Set<string>();
+    for (const a of alerts) {
+      if (a.originIata && !getCachedAirport(a.originIata)) codes.add(a.originIata);
+      if (a.destinationIata && !getCachedAirport(a.destinationIata)) codes.add(a.destinationIata);
+    }
+    codes.forEach((code) => {
+      api.airports.getByIata(code).then((found) => {
+        if (active && found) {
+          setResolvedCities((prev) => ({ ...prev, [code.toUpperCase()]: found.city }));
+        }
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [alerts]);
+
   const getCityName = (iata: string) =>
-    AIRPORTS_CATALOG.find((a) => a.iata === iata)?.city || iata;
+    getCachedAirport(iata)?.city || resolvedCities[iata?.toUpperCase()] || iata;
 
   if (loading) {
     return (

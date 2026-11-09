@@ -66,10 +66,20 @@ export interface AgentChatResponse {
   draftData?: Record<string, unknown>;
 }
 
-export const AIRPORTS_CATALOG = [
+export interface AirportItem {
+  iata: string;
+  city: string;
+  name: string;
+  country: string;
+  popularity?: number;
+}
+
+export const AIRPORTS_CATALOG: AirportItem[] = [
   { iata: 'MAD', city: 'Madrid', name: 'Adolfo Suárez Madrid-Barajas', country: 'España' },
   { iata: 'BCN', city: 'Barcelona', name: 'Josep Tarradellas Barcelona-El Prat', country: 'España' },
   { iata: 'HND', city: 'Tokio', name: 'Tokyo Haneda International', country: 'Japón' },
+  { iata: 'NRT', city: 'Tokio', name: 'Narita International Airport', country: 'Japón' },
+  { iata: 'TYO', city: 'Tokio (Todos)', name: 'Haneda / Narita', country: 'Japón' },
   { iata: 'AMS', city: 'Ámsterdam', name: 'Amsterdam Airport Schiphol', country: 'Países Bajos' },
   { iata: 'LHR', city: 'Londres', name: 'London Heathrow Airport', country: 'Reino Unido' },
   { iata: 'LON', city: 'Londres (Todos)', name: 'Heathrow / Gatwick / Stansted', country: 'Reino Unido' },
@@ -93,6 +103,23 @@ export const AIRPORTS_CATALOG = [
   { iata: 'INN', city: 'Innsbruck', name: 'Innsbruck Tirol Airport', country: 'Austria' },
   { iata: 'DXB', city: 'Dubái', name: 'Dubai International', country: 'EAU' },
 ];
+
+const AIRPORTS_MEMORY_CACHE = new Map<string, AirportItem>(
+  AIRPORTS_CATALOG.map((a) => [a.iata.toUpperCase(), a]),
+);
+
+export function cacheAirports(items: AirportItem[]): void {
+  for (const item of items) {
+    if (item?.iata) {
+      AIRPORTS_MEMORY_CACHE.set(item.iata.toUpperCase(), item);
+    }
+  }
+}
+
+export function getCachedAirport(iata: string): AirportItem | undefined {
+  if (!iata) return undefined;
+  return AIRPORTS_MEMORY_CACHE.get(iata.toUpperCase());
+}
 
 export const WEEKDAYS = [
   { value: 1, label: 'Lunes', short: 'Lun' },
@@ -217,5 +244,34 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ prompt, sessionId }),
       }),
+  },
+  airports: {
+    search: async (q = '', limit = 60): Promise<{ total: number; items: AirportItem[] }> => {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set('q', q.trim());
+      params.set('limit', String(limit));
+      const res = await request<{ total: number; items: AirportItem[] }>(
+        `/airports?${params.toString()}`,
+      );
+      if (res?.items) {
+        cacheAirports(res.items);
+      }
+      return res;
+    },
+    getByIata: async (iata: string): Promise<AirportItem | null> => {
+      const clean = (iata || '').trim().toUpperCase();
+      if (!clean) return null;
+      const cached = getCachedAirport(clean);
+      if (cached) return cached;
+      try {
+        const item = await request<AirportItem | null>(`/airports/${encodeURIComponent(clean)}`);
+        if (item?.iata) {
+          cacheAirports([item]);
+        }
+        return item;
+      } catch {
+        return null;
+      }
+    },
   },
 };

@@ -53,3 +53,16 @@ model Match {
   bookingUrl    String?
   notifiedAt    DateTime @default(now())
 }
+
+model Airport {
+  iata       String   @id
+  name       String
+  city       String
+  country    String
+  popularity Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([city])
+  @@index([country])
+  @@index([popularity(sort: Desc)])
+}

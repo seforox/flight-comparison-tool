@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   api,
   FlightAlert,
   FlightMatch,
   AlertStatus,
   WEEKDAYS,
-  AIRPORTS_CATALOG,
+  getCachedAirport,
 } from "@/lib/api";
 
 interface AlertCardProps {
@@ -117,9 +117,25 @@ export function getBestPriceForAlert(alert: FlightAlert): number {
 export function AlertCard({ alert, onRefresh }: AlertCardProps) {
   const [busy, setBusy] = useState(false);
   const [selectedTupleIdx, setSelectedTupleIdx] = useState(0);
+  const [resolvedCities, setResolvedCities] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+    for (const code of [alert.originIata, alert.destinationIata]) {
+      if (!code || getCachedAirport(code)) continue;
+      api.airports.getByIata(code).then((found) => {
+        if (active && found) {
+          setResolvedCities((prev) => ({ ...prev, [code.toUpperCase()]: found.city }));
+        }
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [alert.originIata, alert.destinationIata]);
 
   const getCityName = (iata: string) =>
-    AIRPORTS_CATALOG.find((a) => a.iata === iata)?.city || iata;
+    getCachedAirport(iata)?.city || resolvedCities[iata?.toUpperCase()] || iata;
 
   const getDayLabel = (day: number) =>
     WEEKDAYS.find((d) => d.value === day)?.label || `Día ${day}`;
