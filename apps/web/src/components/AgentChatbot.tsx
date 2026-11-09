@@ -315,9 +315,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                         type="button"
                         onClick={() =>
                           sendMessage(
-                            `Me quedo con ${rec.city} (${rec.iataCode}) saliendo desde MAD de viernes a domingo en noviembre de este año por menos de ${
-                              rec.estimatedPriceEur + 30
-                            } euros`
+                            `Me quedo con ${rec.city} (${rec.iataCode})`
                           )
                         }
                         className="text-left p-2.5 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 hover:border-cyan-400 transition group cursor-pointer shadow-2xs"

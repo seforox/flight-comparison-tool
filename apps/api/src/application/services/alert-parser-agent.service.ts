@@ -98,10 +98,17 @@ const MONTH_NAMES: Record<string, number> = {
 const CITY_TO_IATA: Record<string, string> = {
   madrid: 'MAD',
   barcelona: 'BCN',
+  tokio: 'HND',
+  tokyo: 'HND',
   londres: 'LON',
   paris: 'PAR',
   parís: 'PAR',
   roma: 'ROM',
+  amsterdam: 'AMS',
+  ámsterdam: 'AMS',
+  'nueva york': 'JFK',
+  dubai: 'DXB',
+  dubái: 'DXB',
   palma: 'PMI',
   mallorca: 'PMI',
   tenerife: 'TFS',
@@ -112,13 +119,32 @@ const CITY_TO_IATA: Record<string, string> = {
   ginebra: 'GVA',
   zurich: 'ZRH',
   zúrich: 'ZRH',
-  milan: 'MIL',
-  milán: 'MIL',
+  milan: 'BGY',
+  milán: 'BGY',
   innsbruck: 'INN',
   turin: 'TRN',
   turín: 'TRN',
   lisboa: 'LIS',
   oporto: 'OPO',
+  berlin: 'BER',
+  berlín: 'BER',
+  bruselas: 'BRU',
+  viena: 'VIE',
+  praga: 'PRG',
+  budapest: 'BUD',
+  atenas: 'ATH',
+  dublin: 'DUB',
+  dublín: 'DUB',
+  edimburgo: 'EDI',
+  venecia: 'VCE',
+  napoles: 'NAP',
+  nápoles: 'NAP',
+  florencia: 'FLR',
+  sevilla: 'SVQ',
+  valencia: 'VLC',
+  bilbao: 'BIO',
+  ibiza: 'IBZ',
+  lanzarote: 'ACE',
 };
 
 const BEACH_RECOMMENDATIONS: DestinationRecommendation[] = [
@@ -194,6 +220,44 @@ const MOUNTAIN_RECOMMENDATIONS: DestinationRecommendation[] = [
     country: 'Suiza',
     estimatedPriceEur: 75,
     reason: 'Conexiones rápidas en tren a las principales rutas alpinas suizas.',
+  },
+];
+
+const ITALY_RECOMMENDATIONS: DestinationRecommendation[] = [
+  {
+    city: 'Roma',
+    iataCode: 'ROM',
+    country: 'Italia',
+    estimatedPriceEur: 45,
+    reason: 'Ideal para 3 días en invierno: Coliseo, Vaticano y Trastevere sin colas ni calor y con vuelos muy baratos en enero.',
+  },
+  {
+    city: 'Milán - Bérgamo',
+    iataCode: 'BGY',
+    country: 'Italia',
+    estimatedPriceEur: 32,
+    reason: 'El aeropuerto con más frecuencias low-cost de Italia; perfecto para una escapada de 3 días combinando Milán y Bérgamo Alta.',
+  },
+  {
+    city: 'Venecia',
+    iataCode: 'VCE',
+    country: 'Italia',
+    estimatedPriceEur: 48,
+    reason: 'Recorrer sus canales y plazas en 3 días durante enero es mucho más económico y tranquilo que en temporada alta.',
+  },
+  {
+    city: 'Nápoles',
+    iataCode: 'NAP',
+    country: 'Italia',
+    estimatedPriceEur: 42,
+    reason: 'Clima suave en enero, gastronomía inigualable y excursión rápida a Pompeya en una escapada de 3 días.',
+  },
+  {
+    city: 'Turín',
+    iataCode: 'TRN',
+    country: 'Italia',
+    estimatedPriceEur: 39,
+    reason: 'Cafés históricos, museos increíbles y vistas a los Alpes nevados a precios muy bajos en enero.',
   },
 ];
 
@@ -380,7 +444,10 @@ export class AlertParserAgentService {
       let recs = GENERAL_CHEAP_RECOMMENDATIONS;
       let themeName = 'económicos en Europa';
 
-      if (lower.includes('playa') || lower.includes('costa') || lower.includes('sol')) {
+      if (lower.includes('italia') || lower.includes('italiano')) {
+        recs = ITALY_RECOMMENDATIONS;
+        themeName = 'en Italia';
+      } else if (lower.includes('playa') || lower.includes('costa') || lower.includes('sol')) {
         recs = BEACH_RECOMMENDATIONS;
         themeName = 'baratos con playa';
       } else if (lower.includes('montaña') || lower.includes('montana') || lower.includes('nieve') || lower.includes('alpes')) {
@@ -389,19 +456,21 @@ export class AlertParserAgentService {
       }
 
       state.recommendations = recs;
-      // Extraer si ya dio origen o presupuesto en la misma frase
-      this.extractEntitiesIntoDraft(prompt, state);
+      // Extraer si ya dio origen, mes ("en enero"), duración ("3 días") o presupuesto en la misma frase
+      this.extractEntitiesIntoDraft(prompt, state, true);
 
       const listText = recs
         .map((r, i) => `${i + 1}. **${r.city} (${r.iataCode})** - ${r.country} (~${r.estimatedPriceEur}€): ${r.reason}`)
         .join('\n');
+
+      const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
 
       const reply = [
         `🌟 Aquí tienes **5 recomendaciones de destinos ${themeName}**:`,
         '',
         listText,
         '',
-        '¿Cuál de estos 5 destinos te gustaría elegir? Dime también desde qué ciudad sales, qué días de la semana quieres viajar, rango de fechas y tu presupuesto máximo.',
+        `¿Cuál de estos 5 destinos te gustaría elegir? Cuando elijas uno, dime también ${missingAfterRec}.`,
       ].join('\n');
 
       return {
@@ -472,7 +541,9 @@ export class AlertParserAgentService {
     }
 
     try {
-      const systemPrompt = `Eres un asistente experto en vuelos que opera bajo las siguientes SKILL.md cargadas dinámicamente:
+      const currentYear = new Date().getUTCFullYear();
+      const systemPrompt = `Eres Vera, una asistente experta en vuelos que opera bajo las siguientes SKILL.md cargadas dinámicamente.
+Fecha actual UTC: ${new Date().toISOString().split('T')[0]} (año actual: ${currentYear}).
 
 === SKILL 1: DEFINED_SEARCH ===
 ${this.skillsContent.DEFINED_SEARCH}
@@ -481,30 +552,69 @@ ${this.skillsContent.DEFINED_SEARCH}
 ${this.skillsContent.DESTINATION_RECOMMENDER}
 
 Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}
-IMPORTANTE: En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
+IMPORTANTE:
+- En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
+- En "draft", "departureDay" y "returnDay" deben ser enteros del 1 (Lunes) al 7 (Domingo), y "startDate"/"endDate" cadenas "YYYY-MM-DD".
 Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 { "activeSkill": "DEFINED_SEARCH" | "DESTINATION_RECOMMENDER", "draft": {...}, "recommendations": [...] | null, "reply": "..." }`;
 
-      const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: `${systemPrompt}\n\nMensaje del usuario: "${prompt}"` }],
-            },
-          ],
-          generationConfig: {
-            responseMimeType: 'application/json',
+      const payload = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: `${systemPrompt}\n\nMensaje del usuario: "${prompt}"` }],
           },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
         },
-      );
+      };
+
+      const candidateModels = [
+        process.env.GEMINI_MODEL,
+        'gemini-3-flash-preview',
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite',
+      ].filter(Boolean) as string[];
+
+      let response: any = null;
+      let lastErrorMsg = '';
+
+      for (const modelName of candidateModels) {
+        try {
+          response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+            payload,
+            { timeout: 12000 },
+          );
+          break;
+        } catch (err: any) {
+          lastErrorMsg = err?.response?.data?.error?.message || err?.message || '';
+        }
+      }
+
+      if (!response) {
+        throw new Error(lastErrorMsg || 'No se pudo conectar con ningún modelo de Gemini');
+      }
 
       const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
         const parsed = JSON.parse(rawText);
         state.activeSkill = parsed.activeSkill || 'DEFINED_SEARCH';
-        state.draft = { ...state.draft, ...(parsed.draft || {}) };
+        // Combinar tanto la extracción determinista local (fechas de meses, duración, ciudades) como la de Gemini
+        this.extractEntitiesIntoDraft(
+          prompt,
+          state,
+          state.activeSkill === 'DESTINATION_RECOMMENDER',
+        );
+        if (parsed.draft && typeof parsed.draft === 'object') {
+          for (const [k, v] of Object.entries(parsed.draft)) {
+            if (v !== null && v !== undefined && v !== '') {
+              (state.draft as any)[k] = v;
+            }
+          }
+          this.normalizeDraftFields(state.draft);
+        }
         if (parsed.recommendations) {
           state.recommendations = parsed.recommendations;
         }
@@ -547,7 +657,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         };
       }
     } catch (error: any) {
-      this.logger.error(`Error llamando a Gemini API, usando motor local: ${error?.message}`);
+      const apiDetail = error?.response?.data?.error?.message || error?.message;
+      this.logger.error(`Error llamando a Gemini API, usando motor local: ${apiDetail}`);
     }
 
     return this.processWithSkillsEngine(prompt, state, sessionId);
@@ -561,42 +672,70 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     );
   }
 
-  private extractEntitiesIntoDraft(prompt: string, state: SessionState): void {
+  private extractEntitiesIntoDraft(prompt: string, state: SessionState, ignoreDestination = false): void {
     const lower = prompt.toLowerCase();
 
     // 1. Extraer códigos IATA explícitos en mayúsculas (ej. "de MAD a LON" o "(GVA)")
     const fromToIata = prompt.match(/(?:de|desde)\s+([A-Z]{3})\s+(?:a|hacia)\s+([A-Z]{3})/);
     if (fromToIata) {
       state.draft.originIata = fromToIata[1];
-      state.draft.destinationIata = fromToIata[2];
+      if (!ignoreDestination) {
+        state.draft.destinationIata = fromToIata[2];
+      }
     } else {
       const originMatch = prompt.match(/(?:desde|saliendo de)\s+([A-Z]{3})/);
       if (originMatch) {
         state.draft.originIata = originMatch[1];
       }
       const parenIata = prompt.match(/\(([A-Z]{3})\)/);
-      if (parenIata) {
+      if (parenIata && !ignoreDestination) {
         state.draft.destinationIata = parenIata[1];
       }
     }
 
-    // 2. Extraer por nombres de ciudades si aún faltan
+    // 1.5. Si había 5 recomendaciones previas en la sesión y el usuario menciona el nombre de alguna de esas ciudades (ej. "Estocolmo", "Gotemburgo")
+    if (!ignoreDestination && state.recommendations && state.recommendations.length > 0) {
+      for (const rec of state.recommendations) {
+        const mainCityName = rec.city.toLowerCase().split(/[(-]/)[0].trim();
+        if (
+          (mainCityName.length >= 3 && lower.includes(mainCityName)) ||
+          prompt.toUpperCase().includes(rec.iataCode)
+        ) {
+          state.draft.destinationIata = rec.iataCode;
+          break;
+        }
+      }
+    }
+
+    // 2. Extraer por nombres de ciudades del catálogo general
     for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
-      if (lower.includes(`desde ${city}`) || lower.includes(`de ${city} a`)) {
-        state.draft.originIata = state.draft.originIata || iata;
-      } else if (
-        lower.includes(`a ${city}`) ||
-        lower.includes(`con ${city}`) ||
-        lower.includes(`elijo ${city}`) ||
-        lower.includes(city)
+      if (
+        lower.includes(`desde ${city}`) ||
+        lower.includes(`saliendo de ${city}`) ||
+        lower.includes(`de ${city} a `) ||
+        lower.includes(`de ${city} hacia `)
       ) {
-        if (state.draft.originIata !== iata && !state.draft.destinationIata) {
+        state.draft.originIata = iata;
+      } else if (
+        !ignoreDestination &&
+        (lower.includes(`a ${city}`) ||
+          lower.includes(`hacia ${city}`) ||
+          lower.includes(`con ${city}`) ||
+          lower.includes(`elijo ${city}`))
+      ) {
+        if (state.draft.originIata !== iata) {
+          state.draft.destinationIata = iata;
+        }
+      } else if (!ignoreDestination && lower.includes(city)) {
+        if (!state.draft.originIata) {
+          state.draft.originIata = iata;
+        } else if (state.draft.originIata !== iata && !state.draft.destinationIata) {
           state.draft.destinationIata = iata;
         }
       }
     }
 
-    // 3. Días de la semana
+    // 3. Días de la semana explícitos o deducidos por duración ("finde", "3 días", "4 días")
     const foundDays: number[] = [];
     const words = lower.replace(/[.,]/g, '').split(/\s+/);
     for (const word of words) {
@@ -609,6 +748,22 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       state.draft.returnDay = foundDays[1];
     } else if (foundDays.length === 1 && !state.draft.departureDay) {
       state.draft.departureDay = foundDays[0];
+    } else if (!state.draft.departureDay || !state.draft.returnDay) {
+      // Si menciona "finde", "fin de semana" o "viaje de 3 días", sugerimos por defecto Viernes (5) a Domingo (7)
+      if (
+        lower.includes('finde') ||
+        lower.includes('fin de semana') ||
+        /\b3\s*d[ií]as\b/.test(lower)
+      ) {
+        state.draft.departureDay = state.draft.departureDay || 5;
+        state.draft.returnDay = state.draft.returnDay || 7;
+      } else if (/\b4\s*d[ií]as\b/.test(lower)) {
+        state.draft.departureDay = state.draft.departureDay || 4;
+        state.draft.returnDay = state.draft.returnDay || 7;
+      } else if (/\b2\s*d[ií]as\b/.test(lower)) {
+        state.draft.departureDay = state.draft.departureDay || 6;
+        state.draft.returnDay = state.draft.returnDay || 7;
+      }
     }
 
     // 4. Número de pasajeros
@@ -707,6 +862,32 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     );
   }
 
+  private normalizeDraftFields(draft: ParsedAlertDraft): void {
+    const parseDayVal = (val: any): number | undefined => {
+      if (typeof val === 'number' && val >= 1 && val <= 7) return val;
+      if (typeof val === 'string') {
+        const lower = val.trim().toLowerCase();
+        if (DAY_NAMES[lower]) return DAY_NAMES[lower];
+        const num = parseInt(lower, 10);
+        if (num >= 1 && num <= 7) return num;
+      }
+      return undefined;
+    };
+
+    if (draft.departureDay !== undefined) {
+      draft.departureDay = parseDayVal(draft.departureDay);
+    }
+    if (draft.returnDay !== undefined) {
+      draft.returnDay = parseDayVal(draft.returnDay);
+    }
+    if (draft.adults !== undefined) {
+      draft.adults = Math.max(1, Number(draft.adults) || 1);
+    }
+    if (draft.maxPriceEur !== undefined) {
+      draft.maxPriceEur = Number(draft.maxPriceEur);
+    }
+  }
+
   private toCompleteData(draft: ParsedAlertDraft) {
     return {
       originIata: draft.originIata!,
@@ -718,6 +899,21 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       startDate: draft.startDate!,
       endDate: draft.endDate!,
     };
+  }
+
+  private getMissingFieldsAfterRecommendation(draft: ParsedAlertDraft): string {
+    const missing: string[] = [];
+    if (!draft.originIata) missing.push('desde qué ciudad sales');
+    if (!draft.departureDay || !draft.returnDay) {
+      missing.push('qué días de la semana quieres viajar');
+    } else {
+      missing.push(
+        `si te viene bien volar de ${this.getDayLabel(draft.departureDay)} a ${this.getDayLabel(draft.returnDay)} (o prefieres otros días)`,
+      );
+    }
+    if (!draft.startDate || !draft.endDate) missing.push('el rango de fechas o mes');
+    if (draft.maxPriceEur === undefined) missing.push('tu presupuesto máximo en euros');
+    return missing.join(', ');
   }
 
   private getMissingFieldsDescription(draft: ParsedAlertDraft): string {
