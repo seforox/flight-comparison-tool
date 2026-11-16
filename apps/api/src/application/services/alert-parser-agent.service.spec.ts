@@ -7,6 +7,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
 
   beforeEach(() => {
     process.env.USE_AGENT_MOCK = 'true';
+    process.env.USE_IGNAV_MOCK = 'true';
 
     mockPrisma = {
       alert: {
@@ -31,9 +32,9 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
   });
 
   describe('Skill 1: DEFINED_SEARCH (Búsqueda Definida)', () => {
-    it('should extract all fields (including directOnly) and ask for confirmation when prompt is complete', async () => {
+    it('should extract all fields (including directOnly and budgetType when >1 passenger) and ask for confirmation when prompt is complete', async () => {
       const prompt =
-        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros en total entre el 2026-11-01 y el 2026-11-30';
 
       const result = await service.chat('user-1', prompt, 'session-defined-1');
 
@@ -55,9 +56,26 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(mockPrisma.alert.create).not.toHaveBeenCalled();
     });
 
+    it('should ask whether maxPriceEur is per person or total when adults > 1 and apply it to search', async () => {
+      const prompt =
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
+
+      // Turno 1: Falta saber si 75 EUR es por persona o total
+      const turn1 = await service.chat('user-1', prompt, 'session-budget-per-person');
+      expect(turn1.isComplete).toBe(false);
+      expect(turn1.reply).toContain('máximo por persona o máximo total');
+
+      // Turno 2: El usuario responde "Máximo por persona" -> 75 * 2 = 150 EUR total para la búsqueda
+      const turn2 = await service.chat('user-1', 'Máximo por persona', 'session-budget-per-person');
+      expect(turn2.isComplete).toBe(true);
+      expect(turn2.awaitingConfirmation).toBe(true);
+      expect(turn2.parsedData?.maxPriceEur).toBe(150);
+      expect(turn2.reply).toContain('150 EUR en total (75 EUR por persona)');
+    });
+
     it('should ask whether the user wants direct flight or with layovers if not specified', async () => {
       const prompt =
-        'Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
+        'Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles para 1 persona por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
 
       const turn1 = await service.chat('user-1', prompt, 'session-missing-direct');
 
@@ -121,52 +139,118 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
   });
 
   describe('Skill 2: DESTINATION_RECOMMENDER (Recomendador Inspiracional)', () => {
-    it('should return 5 destination recommendations when user asks for beach/mountain/cheap ideas and ask follow-up questions', async () => {
-      const prompt = 'Recomiéndame sitios baratos con playa para escaparme';
+    it('should ask for origin city before performing any recommendation search if origin is missing, then check direct flights once origin is given', async () => {
+      const sessionId = 'session-rec-1';
 
-      const result = await service.chat('user-1', prompt, 'session-rec-1');
+      // Turno 1: Pide recomendaciones sin indicar origen -> debe preguntar origen antes de buscar
+      const turn1 = await service.chat(
+        'user-1',
+        'Recomiéndame sitios baratos con playa para escaparme',
+        sessionId,
+      );
 
-      expect(result.activeSkill).toBe('DESTINATION_RECOMMENDER');
-      expect(result.isComplete).toBe(false);
-      expect(result.recommendations).toBeDefined();
-      expect(result.recommendations).toHaveLength(5);
-      expect(result.recommendations?.[0]).toEqual(
+      expect(turn1.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(turn1.isComplete).toBe(false);
+      expect(turn1.recommendations).toBeUndefined();
+      expect(turn1.reply).toContain('ciudad o aeropuerto vas a salir');
+
+      // Turno 2: El usuario indica la ciudad de origen -> comprueba vuelos directos y muestra las 5 opciones
+      const turn2 = await service.chat('user-1', 'Desde Madrid', sessionId);
+
+      expect(turn2.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(turn2.isComplete).toBe(false);
+      expect(turn2.draftData?.originIata).toBe('MAD');
+      expect(turn2.recommendations).toBeDefined();
+      expect(turn2.recommendations).toHaveLength(5);
+      expect(turn2.recommendations?.[0]).toEqual(
         expect.objectContaining({
           city: expect.any(String),
           iataCode: expect.any(String),
           country: expect.any(String),
           estimatedPriceEur: expect.any(Number),
           reason: expect.any(String),
+          hasDirectFlights: expect.any(Boolean),
         }),
       );
-      expect(result.reply).toContain('¿Cuál de estos 5 destinos te gustaría elegir');
+      expect(turn2.reply).toContain('Vuelo directo desde MAD');
+      expect(turn2.reply).toContain('¿Cuál de estos 5 destinos te gustaría elegir');
+    });
+
+    it('should verify which recommended destinations have direct flights vs layovers from origin before returning response', async () => {
+      const sessionId = 'session-rec-direct-check';
+
+      // Pide destinos de montaña indicando ya el origen en la frase
+      const result = await service.chat(
+        'user-1',
+        'Recomiéndame sitios baratos de montaña saliendo desde Madrid',
+        sessionId,
+      );
+
+      expect(result.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(result.recommendations).toHaveLength(5);
+
+      const gva = result.recommendations?.find((r) => r.iataCode === 'GVA');
+      const inn = result.recommendations?.find((r) => r.iataCode === 'INN');
+      expect(gva?.hasDirectFlights).toBe(true);
+      expect(inn?.hasDirectFlights).toBe(false);
+      expect(result.reply).toContain('✈️ Vuelo directo desde MAD');
+      expect(result.reply).toContain('🔄 Con escalas desde MAD');
     });
 
     it('should transition from DESTINATION_RECOMMENDER to DEFINED_SEARCH across turns until confirmation', async () => {
       const sessionId = 'session-multi-turn-rec';
 
-      // Turno 1: Pide recomendaciones de montaña
+      // Turno 1: Pide recomendaciones de montaña (sin origen) -> pide origen
       const turn1 = await service.chat('user-1', 'Busco sitios baratos de montaña', sessionId);
       expect(turn1.activeSkill).toBe('DESTINATION_RECOMMENDER');
-      expect(turn1.recommendations).toHaveLength(5);
+      expect(turn1.recommendations).toBeUndefined();
 
-      // Turno 2: Elige uno de los destinos recomendados y da el resto de datos
-      const turn2 = await service.chat(
+      // Turno 2: Responde con la ciudad de origen -> devuelve las 5 recomendaciones verificando vuelos directos
+      const turn2 = await service.chat('user-1', 'Madrid', sessionId);
+      expect(turn2.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(turn2.recommendations).toHaveLength(5);
+      expect(turn2.draftData?.originIata).toBe('MAD');
+
+      // Turno 3: Elige uno de los destinos recomendados y da el resto de datos
+      const turn3 = await service.chat(
         'user-1',
-        'Me quedo con Ginebra (GVA) en vuelo directo saliendo desde MAD de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
+        'Me quedo con Ginebra (GVA) en vuelo directo de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
         sessionId,
       );
-      expect(turn2.activeSkill).toBe('DEFINED_SEARCH');
-      expect(turn2.isComplete).toBe(true);
-      expect(turn2.awaitingConfirmation).toBe(true);
-      expect(turn2.parsedData?.destinationIata).toBe('GVA');
-      expect(turn2.parsedData?.originIata).toBe('MAD');
-      expect(turn2.parsedData?.directOnly).toBe(true);
+      expect(turn3.activeSkill).toBe('DEFINED_SEARCH');
+      expect(turn3.isComplete).toBe(true);
+      expect(turn3.awaitingConfirmation).toBe(true);
+      expect(turn3.parsedData?.destinationIata).toBe('GVA');
+      expect(turn3.parsedData?.originIata).toBe('MAD');
+      expect(turn3.parsedData?.directOnly).toBe(true);
 
-      // Turno 3: Confirma creación y encolado automático
-      const turn3 = await service.chat('user-1', 'Sí, adelante', sessionId);
-      expect(turn3.alertCreated).toBe(true);
+      // Turno 4: Confirma creación y encolado automático
+      const turn4 = await service.chat('user-1', 'Sí, adelante', sessionId);
+      expect(turn4.alertCreated).toBe(true);
       expect(mockScheduler.enqueueAlert).toHaveBeenCalledWith('created-alert-id-999');
+    });
+
+    it('should ask in DESTINATION_RECOMMENDER whether budget is per person or total when adults > 1 and budget is given', async () => {
+      const sessionId = 'session-rec-budget-type';
+
+      // Turno 1: Pide recomendaciones desde Madrid para 2 personas con 100 euros (sin especificar si es por persona o total)
+      const turn1 = await service.chat(
+        'user-1',
+        'Recomiéndame sitios baratos con playa saliendo desde Madrid para 2 personas por menos de 100 euros',
+        sessionId,
+      );
+
+      expect(turn1.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(turn1.recommendations).toBeUndefined();
+      expect(turn1.reply).toContain('máximo por persona o máximo total');
+
+      // Turno 2: Indica que es por persona -> aplica 200 EUR total (100 EUR/persona) y devuelve las 5 opciones
+      const turn2 = await service.chat('user-1', 'Máximo por persona', sessionId);
+      expect(turn2.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(turn2.recommendations).toHaveLength(5);
+      expect(turn2.draftData?.maxPriceEur).toBe(200);
+      expect(turn2.draftData?.budgetType).toBe('PER_PERSON');
+      expect(turn2.reply).toContain('200 EUR total / 100 EUR por persona');
     });
   });
 });

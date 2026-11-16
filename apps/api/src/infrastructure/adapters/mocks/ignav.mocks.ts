@@ -148,4 +148,47 @@ export const IGNAV_MOCKS = {
       },
     ],
   },
+
+  // Escenario 5: Vuelo con escala (sin vuelos directos en la ruta)
+  LAYOVER_FLIGHT: {
+    origin: 'MAD',
+    destination: 'INN',
+    departure_date: '2026-11-06',
+    return_date: '2026-11-08',
+    observed_at: '2026-11-02T12:00:00Z',
+    itineraries: [
+      {
+        price: {
+          amount: 85.0,
+          currency: 'EUR',
+          status: 'verified',
+        },
+        outbound: {
+          carrier: 'Lufthansa',
+          duration_minutes: 295,
+          segments: [
+            {
+              marketing_carrier_code: 'LH',
+              flight_number: '1113',
+              operating_carrier_name: 'Lufthansa',
+              departure_airport: 'MAD',
+              departure_time_local: '2026-11-06T09:15:00',
+              arrival_airport: 'FRA',
+            },
+            {
+              marketing_carrier_code: 'LH',
+              flight_number: '1238',
+              operating_carrier_name: 'Air Dolomiti',
+              departure_airport: 'FRA',
+              departure_time_local: '2026-11-06T12:45:00',
+              arrival_airport: 'INN',
+            },
+          ],
+        },
+        cabin_class: 'economy',
+        has_mixed_carriers: false,
+        ignav_id: 'mock_ignav_layover_1',
+      },
+    ],
+  },
 };

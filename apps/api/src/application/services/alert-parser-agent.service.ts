@@ -4,6 +4,7 @@ import * as path from 'path';
 import axios from 'axios';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { AlertSchedulerService } from './alert-scheduler.service';
+import { IgnavAdapter } from '../../infrastructure/adapters/ignav.adapter';
 
 export type AgentSkill = 'DEFINED_SEARCH' | 'DESTINATION_RECOMMENDER';
 
@@ -13,7 +14,10 @@ export interface DestinationRecommendation {
   country: string;
   estimatedPriceEur: number;
   reason: string;
+  hasDirectFlights?: boolean;
 }
+
+export type BudgetType = 'PER_PERSON' | 'TOTAL';
 
 export interface ParsedAlertDraft {
   originIata?: string;
@@ -23,6 +27,8 @@ export interface ParsedAlertDraft {
   adults?: number;
   directOnly?: boolean;
   maxPriceEur?: number;
+  rawMaxPriceEur?: number;
+  budgetType?: BudgetType;
   startDate?: string;
   endDate?: string;
 }
@@ -55,6 +61,7 @@ interface SessionState {
   activeSkill: AgentSkill;
   draft: ParsedAlertDraft;
   recommendations?: DestinationRecommendation[];
+  pendingRecommendationPrompt?: string;
   awaitingConfirmation: boolean;
   history: { role: 'user' | 'assistant'; text: string }[];
 }
@@ -147,6 +154,21 @@ const CITY_TO_IATA: Record<string, string> = {
   bilbao: 'BIO',
   ibiza: 'IBZ',
   lanzarote: 'ACE',
+  zaragoza: 'ZAZ',
+  santiago: 'SCQ',
+  asturias: 'OVD',
+  oviedo: 'OVD',
+  santander: 'SDR',
+  'gran canaria': 'LPA',
+  'las palmas': 'LPA',
+  fuerteventura: 'FUE',
+  menorca: 'MAH',
+  granada: 'GRX',
+  jerez: 'XRY',
+  murcia: 'RMU',
+  vigo: 'VGO',
+  coruña: 'LCG',
+  'a coruña': 'LCG',
 };
 
 const BEACH_RECOMMENDATIONS: DestinationRecommendation[] = [
@@ -155,7 +177,7 @@ const BEACH_RECOMMENDATIONS: DestinationRecommendation[] = [
     iataCode: 'PMI',
     country: 'España',
     estimatedPriceEur: 35,
-    reason: 'Calas de agua cristalina y vuelos directos ultra-económicos todo el año.',
+    reason: 'Calas de agua cristalina y tarifas ultra-económicas todo el año.',
   },
   {
     city: 'Faro (Algarve)',
@@ -306,11 +328,14 @@ export class AlertParserAgentService {
   private readonly logger = new Logger(AlertParserAgentService.name);
   private readonly sessions = new Map<string, SessionState>();
   private readonly skillsContent: Record<AgentSkill, string>;
+  private readonly ignavAdapter: IgnavAdapter;
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
     @Optional() private readonly alertScheduler?: AlertSchedulerService,
+    @Optional() ignavAdapter?: IgnavAdapter,
   ) {
+    this.ignavAdapter = ignavAdapter || new IgnavAdapter();
     this.skillsContent = {
       DEFINED_SEARCH: this.loadSkillFile('defined-search'),
       DESTINATION_RECOMMENDER: this.loadSkillFile('destination-recommender'),
@@ -472,34 +497,131 @@ export class AlertParserAgentService {
         lower.includes('montana')) &&
       !this.hasExplicitDestinationChoice(prompt, state.recommendations);
 
-    if (wantsRecommendation) {
+    const isCompletingPendingRecommendation =
+      Boolean(state.pendingRecommendationPrompt) &&
+      !this.hasExplicitRouteInPrompt(prompt) &&
+      !this.hasExplicitDestinationChoice(prompt, state.recommendations);
+
+    if (wantsRecommendation || isCompletingPendingRecommendation) {
       state.activeSkill = 'DESTINATION_RECOMMENDER';
-      let recs = GENERAL_CHEAP_RECOMMENDATIONS;
+
+      if (wantsRecommendation) {
+        state.pendingRecommendationPrompt = prompt;
+        this.extractEntitiesIntoDraft(prompt, state, true);
+      } else {
+        this.extractOriginFromReply(prompt, state);
+        this.extractEntitiesIntoDraft(prompt, state, true);
+        if (!state.draft.originIata) {
+          state.pendingRecommendationPrompt = `${state.pendingRecommendationPrompt} ${prompt}`;
+        }
+      }
+
+      // Regla obligatoria: pedir la ciudad de origen (y aclarar presupuesto por persona vs total si hay >1 pasajero) antes de buscar
+      if (!state.draft.originIata && this.needsBudgetTypeClarification(state.draft)) {
+        state.recommendations = undefined;
+        const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
+        const askBothReply = `Antes de realizar la búsqueda y recomendarte destinos, ¿desde qué ciudad o aeropuerto vas a salir? Además, al ser ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR es máximo por persona o máximo total?`;
+        return {
+          sessionId,
+          activeSkill: 'DESTINATION_RECOMMENDER',
+          reply: askBothReply,
+          clarificationMessage: askBothReply,
+          isComplete: false,
+          awaitingConfirmation: false,
+          draftData: state.draft,
+        };
+      }
+
+      if (!state.draft.originIata) {
+        state.recommendations = undefined;
+        const askOriginReply =
+          'Antes de realizar la búsqueda y recomendarte destinos (comprobando si tienen vuelos directos o con escalas), ¿desde qué ciudad o aeropuerto vas a salir?';
+        return {
+          sessionId,
+          activeSkill: 'DESTINATION_RECOMMENDER',
+          reply: askOriginReply,
+          clarificationMessage: askOriginReply,
+          isComplete: false,
+          awaitingConfirmation: false,
+          draftData: state.draft,
+        };
+      }
+
+      if (this.needsBudgetTypeClarification(state.draft)) {
+        state.recommendations = undefined;
+        if (!state.pendingRecommendationPrompt) {
+          state.pendingRecommendationPrompt = prompt;
+        }
+        const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
+        const askBudgetTypeReply = `Antes de realizar la búsqueda para los ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR que has indicado es máximo por persona o máximo total?`;
+        return {
+          sessionId,
+          activeSkill: 'DESTINATION_RECOMMENDER',
+          reply: askBudgetTypeReply,
+          clarificationMessage: askBudgetTypeReply,
+          isComplete: false,
+          awaitingConfirmation: false,
+          draftData: state.draft,
+        };
+      }
+
+      const effectiveThemePrompt = (state.pendingRecommendationPrompt || prompt).toLowerCase();
+      state.pendingRecommendationPrompt = undefined;
+
+      let baseRecs = GENERAL_CHEAP_RECOMMENDATIONS;
       let themeName = 'económicos en Europa';
 
-      if (lower.includes('italia') || lower.includes('italiano')) {
-        recs = ITALY_RECOMMENDATIONS;
+      if (effectiveThemePrompt.includes('italia') || effectiveThemePrompt.includes('italiano')) {
+        baseRecs = ITALY_RECOMMENDATIONS;
         themeName = 'en Italia';
-      } else if (lower.includes('playa') || lower.includes('costa') || lower.includes('sol')) {
-        recs = BEACH_RECOMMENDATIONS;
+      } else if (
+        effectiveThemePrompt.includes('playa') ||
+        effectiveThemePrompt.includes('costa') ||
+        effectiveThemePrompt.includes('sol')
+      ) {
+        baseRecs = BEACH_RECOMMENDATIONS;
         themeName = 'baratos con playa';
-      } else if (lower.includes('montaña') || lower.includes('montana') || lower.includes('nieve') || lower.includes('alpes')) {
-        recs = MOUNTAIN_RECOMMENDATIONS;
+      } else if (
+        effectiveThemePrompt.includes('montaña') ||
+        effectiveThemePrompt.includes('montana') ||
+        effectiveThemePrompt.includes('nieve') ||
+        effectiveThemePrompt.includes('alpes')
+      ) {
+        baseRecs = MOUNTAIN_RECOMMENDATIONS;
         themeName = 'baratos de montaña';
       }
 
-      state.recommendations = recs;
-      // Extraer si ya dio origen, mes ("en enero"), duración ("3 días") o presupuesto en la misma frase
-      this.extractEntitiesIntoDraft(prompt, state, true);
+      // Antes de mostrar las respuestas al usuario, comprobar si tienen vuelos directos o no desde el origen
+      const originIata = state.draft.originIata;
+      const verifiedRecs = await this.verifyDirectFlightsForRecommendations(
+        originIata,
+        baseRecs,
+        state.draft,
+      );
+      state.recommendations = verifiedRecs;
 
-      const listText = recs
-        .map((r, i) => `${i + 1}. **${r.city} (${r.iataCode})** - ${r.country} (~${r.estimatedPriceEur}€): ${r.reason}`)
+      const adultsCount = state.draft.adults ?? 1;
+      const listText = verifiedRecs
+        .map((r, i) => {
+          const directBadge = r.hasDirectFlights
+            ? `✈️ Vuelo directo desde ${originIata}`
+            : `🔄 Con escalas desde ${originIata}`;
+          const priceLabel =
+            adultsCount > 1
+              ? `~${r.estimatedPriceEur}€/pers. · ~${r.estimatedPriceEur * adultsCount}€ total`
+              : `~${r.estimatedPriceEur}€`;
+          return `${i + 1}. **${r.city} (${r.iataCode})** - ${r.country} (${priceLabel}) · *${directBadge}*: ${r.reason}`;
+        })
         .join('\n');
 
       const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
+      const budgetContext =
+        adultsCount > 1 && state.draft.maxPriceEur !== undefined
+          ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
+          : '';
 
       const reply = [
-        `🌟 Aquí tienes **5 recomendaciones de destinos ${themeName}**:`,
+        `🌟 Aquí tienes **5 recomendaciones de destinos ${themeName}** saliendo desde **${originIata}**${budgetContext} (tras comprobar si disponen de vuelos directos):`,
         '',
         listText,
         '',
@@ -512,7 +634,7 @@ export class AlertParserAgentService {
         reply,
         isComplete: false,
         awaitingConfirmation: false,
-        recommendations: recs,
+        recommendations: verifiedRecs,
         draftData: state.draft,
       };
     }
@@ -529,13 +651,17 @@ export class AlertParserAgentService {
       const flightTypeText = fullData.directOnly
         ? 'Solo vuelos directos'
         : 'Con escalas permitidas';
+      const budgetText =
+        fullData.adults > 1
+          ? `${fullData.maxPriceEur} EUR en total (${Number((fullData.maxPriceEur / fullData.adults).toFixed(2))} EUR por persona)`
+          : `${fullData.maxPriceEur} EUR`;
       const reply = [
         `✅ Ya tengo todos los datos para tu alerta:`,
         `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
         `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
         `- **Tipo de vuelo:** ${flightTypeText}`,
         `- **Pasajeros:** ${fullData.adults}`,
-        `- **Presupuesto máx.:** ${fullData.maxPriceEur} EUR`,
+        `- **Presupuesto máx.:** ${budgetText}`,
         `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
         '',
         `¿Deseas que lance y active esta alerta ahora mismo? (Responde "Sí" para encolarla automáticamente).`,
@@ -577,8 +703,38 @@ export class AlertParserAgentService {
       return this.processWithSkillsEngine(prompt, state, sessionId);
     }
 
+    const lower = prompt.toLowerCase();
+    const wantsRecommendation =
+      (lower.includes('recomienda') ||
+        lower.includes('recomendacion') ||
+        lower.includes('sitios') ||
+        lower.includes('destinos') ||
+        lower.includes('donde ir') ||
+        lower.includes('dónde ir') ||
+        lower.includes('playa') ||
+        lower.includes('montaña') ||
+        lower.includes('montana')) &&
+      !this.hasExplicitDestinationChoice(prompt, state.recommendations);
+
+    const isCompletingPendingRecommendation =
+      Boolean(state.pendingRecommendationPrompt) &&
+      !this.hasExplicitRouteInPrompt(prompt) &&
+      !this.hasExplicitDestinationChoice(prompt, state.recommendations);
+
+    if (wantsRecommendation) {
+      state.pendingRecommendationPrompt = prompt;
+      this.extractEntitiesIntoDraft(prompt, state, true);
+    } else if (isCompletingPendingRecommendation) {
+      this.extractOriginFromReply(prompt, state);
+      this.extractEntitiesIntoDraft(prompt, state, true);
+    }
+
     try {
       const currentYear = new Date().getUTCFullYear();
+      const pendingContext = state.pendingRecommendationPrompt
+        ? `\nSolicitud previa de recomendación pendiente: "${state.pendingRecommendationPrompt}"`
+        : '';
+
       const systemPrompt = `Eres Vera, una asistente experta en vuelos que opera bajo las siguientes SKILL.md cargadas dinámicamente.
 Fecha actual UTC: ${new Date().toISOString().split('T')[0]} (año actual: ${currentYear}).
 
@@ -588,8 +744,10 @@ ${this.skillsContent.DEFINED_SEARCH}
 === SKILL 2: DESTINATION_RECOMMENDER ===
 ${this.skillsContent.DESTINATION_RECOMMENDER}
 
-Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}
+Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}${pendingContext}
 IMPORTANTE:
+- En DESTINATION_RECOMMENDER, si "originIata" NO está definido ni en el borrador ni en el mensaje actual del usuario, NO devuelvas recomendaciones ("recommendations": null) y pregúntale primero desde qué ciudad o aeropuerto va a salir.
+- Tanto en DESTINATION_RECOMMENDER como en DEFINED_SEARCH, si hay más de 1 pasajero ("adults" > 1) y se ha indicado un presupuesto máximo ("maxPriceEur"), pero no se ha aclarado si es por persona o total ("budgetType" no definido), DEBES preguntar explícitamente si ese presupuesto es **máximo por persona o máximo total** ("budgetType": "PER_PERSON" | "TOTAL" | null).
 - En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
 - En "draft", "departureDay" y "returnDay" deben ser enteros del 1 (Lunes) al 7 (Domingo), "startDate"/"endDate" cadenas "YYYY-MM-DD", y "directOnly" booleano (true = solo vuelo directo / sin escalas, false = con escalas permitidas, o null si aún no lo ha indicado).
 - Si "directOnly" aún no está definido en el borrador ni en el mensaje actual, DEBES preguntarle explícitamente al usuario si prefiere **vuelo directo o con escalas**.
@@ -638,23 +796,167 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
         const parsed = JSON.parse(rawText);
-        state.activeSkill = parsed.activeSkill || 'DEFINED_SEARCH';
+        state.activeSkill =
+          wantsRecommendation || isCompletingPendingRecommendation
+            ? 'DESTINATION_RECOMMENDER'
+            : parsed.activeSkill || 'DEFINED_SEARCH';
+
+        const prevRawPrice = state.draft.rawMaxPriceEur;
         // Combinar tanto la extracción determinista local (fechas de meses, duración, ciudades) como la de Gemini
         this.extractEntitiesIntoDraft(
           prompt,
           state,
           state.activeSkill === 'DESTINATION_RECOMMENDER',
         );
+        const hasNewPriceInPrompt = /(\d+(?:[.,]\d+)?)\s*(?:euros|eur|€)/i.test(prompt);
+
         if (parsed.draft && typeof parsed.draft === 'object') {
           for (const [k, v] of Object.entries(parsed.draft)) {
             if (v !== null && v !== undefined && v !== '') {
+              if (k === 'maxPriceEur' && !hasNewPriceInPrompt && prevRawPrice !== undefined) {
+                continue;
+              }
               (state.draft as any)[k] = v;
             }
           }
+          if (hasNewPriceInPrompt && state.draft.rawMaxPriceEur === undefined && state.draft.maxPriceEur !== undefined) {
+            state.draft.rawMaxPriceEur = Number(state.draft.maxPriceEur);
+          }
           this.normalizeDraftFields(state.draft);
         }
-        if (parsed.recommendations) {
-          state.recommendations = parsed.recommendations;
+
+        // Regla obligatoria en DESTINATION_RECOMMENDER: pedir origen (y aclarar presupuesto por persona vs total si hay >1 pasajero) antes de buscar
+        if (
+          state.activeSkill === 'DESTINATION_RECOMMENDER' &&
+          !state.draft.originIata &&
+          this.needsBudgetTypeClarification(state.draft)
+        ) {
+          state.recommendations = undefined;
+          if (!state.pendingRecommendationPrompt) {
+            state.pendingRecommendationPrompt = prompt;
+          }
+          const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
+          const askBothReply = `Antes de realizar la búsqueda y recomendarte destinos, ¿desde qué ciudad o aeropuerto vas a salir? Además, al ser ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR es máximo por persona o máximo total?`;
+          return {
+            sessionId,
+            activeSkill: 'DESTINATION_RECOMMENDER',
+            reply: askBothReply,
+            clarificationMessage: askBothReply,
+            isComplete: false,
+            awaitingConfirmation: false,
+            draftData: state.draft,
+          };
+        }
+
+        if (state.activeSkill === 'DESTINATION_RECOMMENDER' && !state.draft.originIata) {
+          state.recommendations = undefined;
+          if (!state.pendingRecommendationPrompt) {
+            state.pendingRecommendationPrompt = prompt;
+          }
+          const askOriginReply =
+            'Antes de realizar la búsqueda y recomendarte destinos (comprobando si tienen vuelos directos o con escalas), ¿desde qué ciudad o aeropuerto vas a salir?';
+          return {
+            sessionId,
+            activeSkill: 'DESTINATION_RECOMMENDER',
+            reply: askOriginReply,
+            clarificationMessage: askOriginReply,
+            isComplete: false,
+            awaitingConfirmation: false,
+            draftData: state.draft,
+          };
+        }
+
+        if (
+          state.activeSkill === 'DESTINATION_RECOMMENDER' &&
+          this.needsBudgetTypeClarification(state.draft)
+        ) {
+          state.recommendations = undefined;
+          if (!state.pendingRecommendationPrompt) {
+            state.pendingRecommendationPrompt = prompt;
+          }
+          const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
+          const askBudgetTypeReply = `Antes de realizar la búsqueda para los ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR que has indicado es máximo por persona o máximo total?`;
+          return {
+            sessionId,
+            activeSkill: 'DESTINATION_RECOMMENDER',
+            reply: askBudgetTypeReply,
+            clarificationMessage: askBudgetTypeReply,
+            isComplete: false,
+            awaitingConfirmation: false,
+            draftData: state.draft,
+          };
+        }
+
+        if (state.activeSkill === 'DESTINATION_RECOMMENDER' && state.draft.originIata) {
+          const effectiveThemePrompt = (state.pendingRecommendationPrompt || prompt).toLowerCase();
+          state.pendingRecommendationPrompt = undefined;
+          let fallbackRecs = GENERAL_CHEAP_RECOMMENDATIONS;
+          if (effectiveThemePrompt.includes('italia') || effectiveThemePrompt.includes('italiano')) {
+            fallbackRecs = ITALY_RECOMMENDATIONS;
+          } else if (
+            effectiveThemePrompt.includes('playa') ||
+            effectiveThemePrompt.includes('costa') ||
+            effectiveThemePrompt.includes('sol')
+          ) {
+            fallbackRecs = BEACH_RECOMMENDATIONS;
+          } else if (
+            effectiveThemePrompt.includes('montaña') ||
+            effectiveThemePrompt.includes('montana') ||
+            effectiveThemePrompt.includes('nieve') ||
+            effectiveThemePrompt.includes('alpes')
+          ) {
+            fallbackRecs = MOUNTAIN_RECOMMENDATIONS;
+          }
+
+          const candidateRecs: DestinationRecommendation[] =
+            Array.isArray(parsed.recommendations) && parsed.recommendations.length > 0
+              ? parsed.recommendations
+              : fallbackRecs;
+
+          const verifiedRecs = await this.verifyDirectFlightsForRecommendations(
+            state.draft.originIata,
+            candidateRecs,
+            state.draft,
+          );
+          state.recommendations = verifiedRecs;
+
+          const adultsCount = state.draft.adults ?? 1;
+          const listText = verifiedRecs
+            .map((r, i) => {
+              const directBadge = r.hasDirectFlights
+                ? `✈️ Vuelo directo desde ${state.draft.originIata}`
+                : `🔄 Con escalas desde ${state.draft.originIata}`;
+              const priceLabel =
+                adultsCount > 1
+                  ? `~${r.estimatedPriceEur}€/pers. · ~${r.estimatedPriceEur * adultsCount}€ total`
+                  : `~${r.estimatedPriceEur}€`;
+              return `${i + 1}. **${r.city} (${r.iataCode})** - ${r.country} (${priceLabel}) · *${directBadge}*: ${r.reason}`;
+            })
+            .join('\n');
+
+          const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
+          const budgetContext =
+            adultsCount > 1 && state.draft.maxPriceEur !== undefined
+              ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
+              : '';
+          const recReply = [
+            `🌟 Aquí tienes **5 recomendaciones de destinos** saliendo desde **${state.draft.originIata}**${budgetContext} (tras comprobar si disponen de vuelos directos):`,
+            '',
+            listText,
+            '',
+            `¿Cuál de estos 5 destinos te gustaría elegir? Cuando elijas uno, dime también ${missingAfterRec}.`,
+          ].join('\n');
+
+          return {
+            sessionId,
+            activeSkill: 'DESTINATION_RECOMMENDER',
+            reply: recReply,
+            clarificationMessage: recReply,
+            isComplete: false,
+            awaitingConfirmation: false,
+            recommendations: verifiedRecs,
+            draftData: state.draft,
+          };
         }
 
         if (this.isDraftComplete(state.draft)) {
@@ -665,13 +967,17 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           const flightTypeText = fullData.directOnly
             ? 'Solo vuelos directos'
             : 'Con escalas permitidas';
+          const budgetText =
+            fullData.adults > 1
+              ? `${fullData.maxPriceEur} EUR en total (${Number((fullData.maxPriceEur / fullData.adults).toFixed(2))} EUR por persona)`
+              : `${fullData.maxPriceEur} EUR`;
           const confirmReply = [
             `✅ Ya tengo todos los datos para tu alerta:`,
             `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
             `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
             `- **Tipo de vuelo:** ${flightTypeText}`,
             `- **Pasajeros:** ${fullData.adults}`,
-            `- **Presupuesto máx.:** ${fullData.maxPriceEur} EUR`,
+            `- **Presupuesto máx.:** ${budgetText}`,
             `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
             '',
             `¿Deseas que lance y active esta alerta ahora mismo?`,
@@ -689,6 +995,14 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         let sanitizedReply = this.replaceDayNumbersInText(parsed.reply || '');
         if (
           state.activeSkill === 'DEFINED_SEARCH' &&
+          this.needsBudgetTypeClarification(state.draft) &&
+          !/por persona|total/i.test(sanitizedReply)
+        ) {
+          const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
+          sanitizedReply = `${sanitizedReply.trim()} ¿El presupuesto de ${rawBudget} EUR para los ${state.draft.adults} pasajeros es máximo por persona o máximo total?`;
+        }
+        if (
+          state.activeSkill === 'DEFINED_SEARCH' &&
           state.draft.directOnly === undefined &&
           !/directo|escala/i.test(sanitizedReply)
         ) {
@@ -701,7 +1015,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           clarificationMessage: sanitizedReply,
           isComplete: false,
           awaitingConfirmation: false,
-          recommendations: parsed.recommendations || undefined,
+          recommendations: state.recommendations,
           draftData: state.draft,
         };
       }
@@ -711,6 +1025,192 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     }
 
     return this.processWithSkillsEngine(prompt, state, sessionId);
+  }
+
+  private async verifyDirectFlightsForRecommendations(
+    originIata: string,
+    recommendations: DestinationRecommendation[],
+    draft: ParsedAlertDraft,
+  ): Promise<DestinationRecommendation[]> {
+    const { departureDate, returnDate } = this.getSampleDatesForDirectCheck(draft);
+    const adults = draft.adults ?? 1;
+
+    return Promise.all(
+      recommendations.map(async (rec) => {
+        const knownDirect = this.hasKnownDirectRoute(originIata, rec.iataCode);
+        let hasDirectFlights =
+          knownDirect !== null
+            ? knownDirect
+            : typeof rec.hasDirectFlights === 'boolean'
+              ? rec.hasDirectFlights
+              : true;
+
+        if (this.ignavAdapter) {
+          try {
+            const results = await this.ignavAdapter.searchFlights({
+              originIata,
+              destinationIata: rec.iataCode,
+              departureDate,
+              returnDate,
+              adults,
+              directOnly: false,
+            });
+            if (Array.isArray(results) && results.length > 0) {
+              const foundDirectInSample = results.some(
+                (f) => f.isDirect === true || f.stopsCount === 0,
+              );
+              if (foundDirectInSample) {
+                hasDirectFlights = true;
+              } else if (knownDirect === false || process.env.USE_IGNAV_MOCK !== 'false') {
+                hasDirectFlights = false;
+              }
+            }
+          } catch (err: any) {
+            this.logger.warn(
+              `No se pudo verificar vuelos directos en Ignav para ${originIata}->${rec.iataCode}, usando ruta conocida: ${err?.message}`,
+            );
+          }
+        }
+
+        return {
+          ...rec,
+          hasDirectFlights,
+        };
+      }),
+    );
+  }
+
+  private getSampleDatesForDirectCheck(draft: ParsedAlertDraft): {
+    departureDate: string;
+    returnDate: string;
+  } {
+    if (draft.startDate) {
+      const start = new Date(`${draft.startDate}T00:00:00Z`);
+      if (!isNaN(start.getTime())) {
+        const ret = new Date(start.getTime() + 2 * 24 * 60 * 60 * 1000);
+        return {
+          departureDate: draft.startDate,
+          returnDate: ret.toISOString().split('T')[0],
+        };
+      }
+    }
+    const now = new Date();
+    const dep = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const ret = new Date(now.getTime() + 16 * 24 * 60 * 60 * 1000);
+    return {
+      departureDate: dep.toISOString().split('T')[0],
+      returnDate: ret.toISOString().split('T')[0],
+    };
+  }
+
+  private hasKnownDirectRoute(originIata: string, destinationIata: string): boolean | null {
+    const origin = (originIata || '').toUpperCase();
+    const dest = (destinationIata || '').toUpperCase();
+    if (!origin || !dest || origin === dest) return false;
+    if (dest === 'INN' || dest === 'XXX') return false;
+
+    const commonEuropeanDirectDestinations = new Set([
+      'PMI',
+      'FAO',
+      'TFS',
+      'AGP',
+      'ALC',
+      'IBZ',
+      'ACE',
+      'LPA',
+      'FUE',
+      'MAH',
+      'GVA',
+      'BGY',
+      'MXP',
+      'TRN',
+      'ZRH',
+      'ROM',
+      'FCO',
+      'CIA',
+      'VCE',
+      'NAP',
+      'FLR',
+      'BLQ',
+      'PSA',
+      'OPO',
+      'LIS',
+      'LON',
+      'LHR',
+      'STN',
+      'LGW',
+      'LTN',
+      'PAR',
+      'CDG',
+      'ORY',
+      'BVA',
+      'AMS',
+      'BER',
+      'FRA',
+      'MUC',
+      'BRU',
+      'CRL',
+      'VIE',
+      'PRG',
+      'BUD',
+      'ATH',
+      'DUB',
+      'EDI',
+      'MAD',
+      'BCN',
+      'VLC',
+      'SVQ',
+      'BIO',
+      'SCQ',
+      'ZAZ',
+      'OVD',
+      'SDR',
+    ]);
+
+    if (commonEuropeanDirectDestinations.has(dest)) {
+      return true;
+    }
+
+    if ((origin === 'MAD' || origin === 'BCN') && ['JFK', 'DXB', 'HND', 'NRT', 'TYO'].includes(dest)) {
+      return true;
+    }
+
+    return null;
+  }
+
+  private extractOriginFromReply(prompt: string, state: SessionState): void {
+    const lower = prompt.toLowerCase().trim();
+
+    for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
+      const regex = new RegExp(`(?:^|\\b)${city}(?:\\b|$)`, 'i');
+      if (regex.test(lower)) {
+        state.draft.originIata = iata;
+        return;
+      }
+    }
+
+    const upperIataMatch = prompt.match(/\b([A-Z]{3})\b/);
+    if (upperIataMatch) {
+      state.draft.originIata = upperIataMatch[1];
+      return;
+    }
+
+    if (/^[a-zA-Z]{3}$/.test(prompt.trim())) {
+      state.draft.originIata = prompt.trim().toUpperCase();
+    }
+  }
+
+  private hasExplicitRouteInPrompt(prompt: string): boolean {
+    if (/(?:de|desde)\s+[A-Z]{3}\s+(?:a|hacia)\s+[A-Z]{3}/.test(prompt)) {
+      return true;
+    }
+    const lower = prompt.toLowerCase();
+    for (const cityA of Object.keys(CITY_TO_IATA)) {
+      if (lower.includes(`de ${cityA} a `) || lower.includes(`desde ${cityA} a `) || lower.includes(`de ${cityA} hacia `) || lower.includes(`desde ${cityA} hacia `)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private hasExplicitDestinationChoice(prompt: string, recommendations?: DestinationRecommendation[]): boolean {
@@ -732,7 +1232,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         state.draft.destinationIata = fromToIata[2];
       }
     } else {
-      const originMatch = prompt.match(/(?:desde|saliendo de)\s+([A-Z]{3})/);
+      const originMatch = prompt.match(/(?:desde|saliendo de|salgo de|origen(?:\s+en)?)\s+([A-Z]{3})/);
       if (originMatch) {
         state.draft.originIata = originMatch[1];
       }
@@ -761,6 +1261,15 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       if (
         lower.includes(`desde ${city}`) ||
         lower.includes(`saliendo de ${city}`) ||
+        lower.includes(`saliendo desde ${city}`) ||
+        lower.includes(`salgo de ${city}`) ||
+        lower.includes(`salgo desde ${city}`) ||
+        lower.includes(`soy de ${city}`) ||
+        lower.includes(`vivo en ${city}`) ||
+        lower.includes(`origen ${city}`) ||
+        lower.includes(`origen en ${city}`) ||
+        lower.includes(`volando desde ${city}`) ||
+        lower.includes(`vuelo desde ${city}`) ||
         lower.includes(`de ${city} a `) ||
         lower.includes(`de ${city} hacia `)
       ) {
@@ -836,11 +1345,31 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       state.draft.directOnly = true;
     }
 
-    // 5. Presupuesto máximo
+    // 5. Presupuesto máximo y tipo de presupuesto (por persona vs total)
     const priceMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*(?:euros|eur|€)/);
     if (priceMatch) {
-      state.draft.maxPriceEur = parseFloat(priceMatch[1].replace(',', '.'));
+      const parsedPrice = parseFloat(priceMatch[1].replace(',', '.'));
+      state.draft.rawMaxPriceEur = parsedPrice;
+      state.draft.maxPriceEur = parsedPrice;
     }
+
+    if (
+      /\b(por\s+persona|por\s+pasajero|por\s+adulto|por\s+cabeza|cada\s+uno|cada\s+pasajero|individual|m[aá]ximo\s+por\s+persona)\b/.test(
+        lower,
+      ) &&
+      !lower.includes('por persona o')
+    ) {
+      state.draft.budgetType = 'PER_PERSON';
+    } else if (
+      /\b(en\s+total|presupuesto\s+total|m[aá]ximo\s+total|precio\s+total|total\s+para\s+todos|entre\s+todos|entre\s+los\s+\w+|por\s+todos)\b/.test(
+        lower,
+      ) ||
+      /^(?:el\s+)?total[.!]*$/i.test(lower.trim())
+    ) {
+      state.draft.budgetType = 'TOTAL';
+    }
+
+    this.recalculateMaxPriceEur(state.draft);
 
     // 6. Fechas YYYY-MM-DD explícitas o deducción por mes/expresión temporal
     const dateMatches = prompt.match(/\d{4}-\d{2}-\d{2}/g);
@@ -914,6 +1443,27 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     };
   }
 
+  private needsBudgetTypeClarification(draft: ParsedAlertDraft): boolean {
+    return Boolean(
+      (draft.adults ?? 1) > 1 &&
+        draft.maxPriceEur !== undefined &&
+        !draft.budgetType,
+    );
+  }
+
+  private recalculateMaxPriceEur(draft: ParsedAlertDraft): void {
+    if (draft.rawMaxPriceEur === undefined && draft.maxPriceEur !== undefined) {
+      draft.rawMaxPriceEur = Number(draft.maxPriceEur);
+    }
+    if (draft.rawMaxPriceEur === undefined) return;
+    const adults = draft.adults ?? 1;
+    if (adults > 1 && draft.budgetType === 'PER_PERSON') {
+      draft.maxPriceEur = Number((draft.rawMaxPriceEur * adults).toFixed(2));
+    } else {
+      draft.maxPriceEur = Number(draft.rawMaxPriceEur);
+    }
+  }
+
   private isDraftComplete(draft: ParsedAlertDraft): boolean {
     return Boolean(
       draft.originIata &&
@@ -923,6 +1473,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         draft.directOnly !== undefined &&
         draft.directOnly !== null &&
         draft.maxPriceEur !== undefined &&
+        !this.needsBudgetTypeClarification(draft) &&
         draft.startDate &&
         draft.endDate,
     );
@@ -959,9 +1510,20 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         else draft.directOnly = undefined;
       }
     }
+    if (draft.budgetType !== undefined && draft.budgetType !== null) {
+      const bt = String(draft.budgetType).trim().toUpperCase();
+      if (bt === 'PER_PERSON' || bt.includes('PERSON') || bt.includes('PASAJERO')) {
+        draft.budgetType = 'PER_PERSON';
+      } else if (bt === 'TOTAL' || bt.includes('TOTAL')) {
+        draft.budgetType = 'TOTAL';
+      } else {
+        draft.budgetType = undefined;
+      }
+    }
     if (draft.maxPriceEur !== undefined) {
       draft.maxPriceEur = Number(draft.maxPriceEur);
     }
+    this.recalculateMaxPriceEur(draft);
   }
 
   private toCompleteData(draft: ParsedAlertDraft) {
@@ -989,7 +1551,17 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       );
     }
     if (!draft.startDate || !draft.endDate) missing.push('el rango de fechas o mes');
-    if (draft.maxPriceEur === undefined) missing.push('tu presupuesto máximo en euros');
+    if (draft.maxPriceEur === undefined) {
+      missing.push(
+        (draft.adults ?? 1) > 1
+          ? 'tu presupuesto máximo en euros (indicando si es máximo por persona o máximo total)'
+          : 'tu presupuesto máximo en euros',
+      );
+    } else if (this.needsBudgetTypeClarification(draft)) {
+      missing.push(
+        `si el presupuesto máximo de ${draft.rawMaxPriceEur ?? draft.maxPriceEur} EUR es máximo por persona o máximo total`,
+      );
+    }
     if (draft.directOnly === undefined) missing.push('si prefieres vuelo directo o con escalas');
     return missing.join(', ');
   }
@@ -999,7 +1571,17 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (!draft.originIata) missing.push('aeropuerto de origen');
     if (!draft.destinationIata) missing.push('destino');
     if (!draft.departureDay || !draft.returnDay) missing.push('día de la semana de salida y de regreso');
-    if (draft.maxPriceEur === undefined) missing.push('presupuesto máximo en euros');
+    if (draft.maxPriceEur === undefined) {
+      missing.push(
+        (draft.adults ?? 1) > 1
+          ? 'presupuesto máximo en euros (indicando si es máximo por persona o máximo total)'
+          : 'presupuesto máximo en euros',
+      );
+    } else if (this.needsBudgetTypeClarification(draft)) {
+      missing.push(
+        `si el presupuesto máximo de ${draft.rawMaxPriceEur ?? draft.maxPriceEur} EUR para los ${draft.adults} pasajeros es máximo por persona o máximo total`,
+      );
+    }
     if (!draft.startDate || !draft.endDate) missing.push('fechas de inicio y fin (YYYY-MM-DD)');
     if (draft.directOnly === undefined) missing.push('si prefieres vuelo directo o con escalas');
     return missing.join(', ');

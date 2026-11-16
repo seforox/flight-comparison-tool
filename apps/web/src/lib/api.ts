@@ -43,6 +43,7 @@ export interface DestinationRecommendation {
   country: string;
   estimatedPriceEur: number;
   reason: string;
+  hasDirectFlights?: boolean;
 }
 
 export interface AgentChatResponse {
@@ -73,6 +74,8 @@ export interface AgentChatResponse {
     adults?: number;
     directOnly?: boolean;
     maxPriceEur?: number;
+    rawMaxPriceEur?: number;
+    budgetType?: 'PER_PERSON' | 'TOTAL';
     startDate?: string;
     endDate?: string;
     [key: string]: unknown;

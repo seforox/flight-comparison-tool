@@ -24,6 +24,7 @@ const RecommendationSchema = z.object({
   country: z.string(),
   estimatedPriceEur: z.number(),
   reason: z.string(),
+  hasDirectFlights: z.boolean().optional(),
 });
 
 const AgentChatOutputSchema = z.object({
@@ -41,6 +42,7 @@ const AgentChatOutputSchema = z.object({
       departureDay: z.number(),
       returnDay: z.number(),
       adults: z.number(),
+      directOnly: z.boolean().optional(),
       maxPriceEur: z.number(),
       startDate: z.string(),
       endDate: z.string(),

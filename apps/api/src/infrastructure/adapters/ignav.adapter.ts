@@ -79,13 +79,50 @@ export class IgnavAdapter implements FlightSearchProvider {
       case 'DXB':
         rawResponse = IGNAV_MOCKS.EXPENSIVE_FLIGHT;
         break;
+      case 'INN':
+        rawResponse = IGNAV_MOCKS.LAYOVER_FLIGHT;
+        break;
       case 'XXX':
+        rawResponse = IGNAV_MOCKS.EMPTY_RESPONSE;
+        break;
       default:
-        rawResponse = query.destinationIata === 'XXX' ? IGNAV_MOCKS.EMPTY_RESPONSE : IGNAV_MOCKS.CHEAP_FLIGHT;
+        rawResponse = this.isMockLayoverRoute(query.originIata, query.destinationIata)
+          ? IGNAV_MOCKS.LAYOVER_FLIGHT
+          : IGNAV_MOCKS.CHEAP_FLIGHT;
         break;
     }
 
     return this.mapItinerariesToResults(rawResponse.itineraries, query);
+  }
+
+  private isMockLayoverRoute(originIata: string, destinationIata: string): boolean {
+    const origin = (originIata || '').toUpperCase();
+    const dest = (destinationIata || '').toUpperCase();
+    if (dest === 'INN') return true;
+    const majorHubs = new Set([
+      'MAD',
+      'BCN',
+      'VLC',
+      'SVQ',
+      'AGP',
+      'ALC',
+      'PMI',
+      'BIO',
+      'LON',
+      'LHR',
+      'STN',
+      'PAR',
+      'CDG',
+      'ROM',
+      'FCO',
+      'AMS',
+      'LIS',
+      'OPO',
+    ]);
+    if (!majorHubs.has(origin) && ['FAO', 'GVA', 'TRN', 'ZRH', 'VCE', 'NAP'].includes(dest)) {
+      return true;
+    }
+    return false;
   }
 
   private mapItinerariesToResults(itineraries: any[] | undefined, query: FlightSearchQuery): FlightSearchResult[] {

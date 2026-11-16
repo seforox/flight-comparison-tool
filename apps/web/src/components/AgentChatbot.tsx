@@ -12,6 +12,7 @@ interface ChatMessage {
   awaitingConfirmation?: boolean;
   alertCreated?: boolean;
   needsDirectChoice?: boolean;
+  needsBudgetTypeChoice?: boolean;
   parsedDirectOnly?: boolean;
 }
 
@@ -100,6 +101,16 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         (res.draftData?.directOnly === undefined ||
           /vuelo directo o con escalas/i.test(res.reply));
 
+      const asksForBudgetType =
+        !res.awaitingConfirmation &&
+        !res.alertCreated &&
+        (((res.draftData?.adults ?? 1) > 1 &&
+          res.draftData?.maxPriceEur !== undefined &&
+          !res.draftData?.budgetType) ||
+          /m[aá]ximo por persona o m[aá]ximo total|por persona o total/i.test(
+            res.reply
+          ));
+
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         role: "assistant",
@@ -109,6 +120,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         awaitingConfirmation: res.awaitingConfirmation,
         alertCreated: res.alertCreated,
         needsDirectChoice: asksForDirect,
+        needsBudgetTypeChoice: asksForBudgetType,
         parsedDirectOnly: res.parsedData?.directOnly,
       };
 
@@ -367,7 +379,11 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                   <div className="text-[11px] font-semibold text-[#0077b6]">
                     Elige uno de estos destinos para preparar tu alerta:
                   </div>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div
+                    className={`grid gap-2 ${
+                      isExpanded ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"
+                    }`}
+                  >
                     {msg.recommendations.map((rec) => (
                       <button
                         key={rec.iataCode}
@@ -390,15 +406,57 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                               {rec.country}
                             </span>
                           </span>
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px] shrink-0">
-                            desde {rec.estimatedPriceEur} €
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {rec.hasDirectFlights !== undefined && (
+                              <span
+                                className={`px-2 py-0.5 rounded-full border font-semibold text-[10px] ${
+                                  rec.hasDirectFlights
+                                    ? "bg-sky-50 text-[#0077b6] border-sky-200"
+                                    : "bg-amber-50 text-amber-800 border-amber-200"
+                                }`}
+                              >
+                                {rec.hasDirectFlights
+                                  ? "✈️ Vuelo directo"
+                                  : "🔄 Con escalas"}
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px]">
+                              desde {rec.estimatedPriceEur} €
+                            </span>
+                          </div>
                         </div>
                         <p className="text-[11px] text-slate-600 mt-1">
                           {rec.reason}
                         </p>
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Selector interactivo cuando Vera pregunta si el presupuesto es por persona o total */}
+              {msg.needsBudgetTypeChoice && (
+                <div className="mt-3 pt-2.5 border-t border-slate-200/80 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-[#0b2545]">
+                    ¿Cómo quieres aplicar el presupuesto?
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => sendMessage("Máximo por persona")}
+                      className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 hover:border-[#0096c7] text-[#0b2545] font-semibold text-xs flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
+                    >
+                      <span aria-hidden="true">👤</span>
+                      <span>Máximo por persona</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendMessage("Máximo total")}
+                      className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 hover:border-[#0096c7] text-[#0b2545] font-semibold text-xs flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
+                    >
+                      <span aria-hidden="true">👥</span>
+                      <span>Máximo total</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -500,14 +558,20 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         <div
           role="group"
           aria-label="Sugerencias de consulta rápida"
-          className="flex flex-col items-start gap-1.5 max-h-24 overflow-y-auto"
+          className={
+            isExpanded
+              ? "grid grid-cols-1 sm:grid-cols-2 gap-2"
+              : "flex flex-col items-start gap-1.5 max-h-24 overflow-y-auto"
+          }
         >
           {SUGGESTED_PROMPTS.map((item) => (
             <button
               key={item.label}
               type="button"
               onClick={() => sendMessage(item.prompt)}
-              className="text-left px-3 py-1 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200/80 hover:border-cyan-300 text-[11px] font-medium text-[#0b2545] transition cursor-pointer truncate max-w-full"
+              className={`text-left px-3 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200/80 hover:border-cyan-300 text-[11px] font-medium text-[#0b2545] transition cursor-pointer truncate max-w-full ${
+                isExpanded ? "w-full py-1.5 px-3.5" : "py-1"
+              }`}
             >
               {item.label}
             </button>
