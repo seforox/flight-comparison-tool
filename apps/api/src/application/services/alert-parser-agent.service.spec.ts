@@ -172,7 +172,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
           hasDirectFlights: expect.any(Boolean),
         }),
       );
-      expect(turn2.reply).toContain('Vuelo directo desde MAD');
+      expect(turn2.reply).not.toContain('1.');
       expect(turn2.reply).toContain('¿Cuál de estos 5 destinos te gustaría elegir');
     });
 
@@ -193,8 +193,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       const inn = result.recommendations?.find((r) => r.iataCode === 'INN');
       expect(gva?.hasDirectFlights).toBe(true);
       expect(inn?.hasDirectFlights).toBe(false);
-      expect(result.reply).toContain('✈️ Vuelo directo desde MAD');
-      expect(result.reply).toContain('🔄 Con escalas desde MAD');
+      expect(result.reply).not.toContain('1.');
     });
 
     it('should transition from DESTINATION_RECOMMENDER to DEFINED_SEARCH across turns until confirmation', async () => {
@@ -211,22 +210,29 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(turn2.recommendations).toHaveLength(5);
       expect(turn2.draftData?.originIata).toBe('MAD');
 
-      // Turno 3: Elige uno de los destinos recomendados y da el resto de datos
-      const turn3 = await service.chat(
+      // Turno 3: Elige uno de los destinos recomendados sin dar todos los datos -> no debe volver a devolver las recomendaciones
+      const turn3Partial = await service.chat('user-1', 'Me quedo con Ginebra (GVA)', sessionId);
+      expect(turn3Partial.activeSkill).toBe('DEFINED_SEARCH');
+      expect(turn3Partial.recommendations).toBeUndefined();
+      expect(turn3Partial.draftData?.destinationIata).toBe('GVA');
+
+      // Turno 4: Da el resto de datos para completar la alerta
+      const turn4Complete = await service.chat(
         'user-1',
-        'Me quedo con Ginebra (GVA) en vuelo directo de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
+        'En vuelo directo de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
         sessionId,
       );
-      expect(turn3.activeSkill).toBe('DEFINED_SEARCH');
-      expect(turn3.isComplete).toBe(true);
-      expect(turn3.awaitingConfirmation).toBe(true);
-      expect(turn3.parsedData?.destinationIata).toBe('GVA');
-      expect(turn3.parsedData?.originIata).toBe('MAD');
-      expect(turn3.parsedData?.directOnly).toBe(true);
+      expect(turn4Complete.activeSkill).toBe('DEFINED_SEARCH');
+      expect(turn4Complete.isComplete).toBe(true);
+      expect(turn4Complete.awaitingConfirmation).toBe(true);
+      expect(turn4Complete.recommendations).toBeUndefined();
+      expect(turn4Complete.parsedData?.destinationIata).toBe('GVA');
+      expect(turn4Complete.parsedData?.originIata).toBe('MAD');
+      expect(turn4Complete.parsedData?.directOnly).toBe(true);
 
-      // Turno 4: Confirma creación y encolado automático
-      const turn4 = await service.chat('user-1', 'Sí, adelante', sessionId);
-      expect(turn4.alertCreated).toBe(true);
+      // Turno 5: Confirma creación y encolado automático
+      const turn5 = await service.chat('user-1', 'Sí, adelante', sessionId);
+      expect(turn5.alertCreated).toBe(true);
       expect(mockScheduler.enqueueAlert).toHaveBeenCalledWith('created-alert-id-999');
     });
 

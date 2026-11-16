@@ -30,6 +30,6 @@ Activa esta skill cuando el usuario:
      - `estimatedPriceEur`: Precio orientativo de ida y vuelta en EUR.
      - `hasDirectFlights`: Booleano obligatorio (`true` si tiene vuelos directos desde `originIata`, `false` si requiere escalas desde `originIata`).
      - `reason`: Breve explicación de por qué encaja con lo que busca el usuario (mencionando por qué es ideal para esa duración o mes).
-   - En el mensaje `reply`, indica claramente para cada destino si cuenta con **✈️ Vuelo directo** o **🔄 Con escalas** desde la ciudad de origen del usuario.
+   - **No dupliques el listado numerado (1, 2, 3, 4, 5) en el texto de `reply`**: las 5 opciones se renderizan como tarjetas interactivas a partir del array `recommendations`. En `reply` incluye únicamente una breve frase introductoria y la pregunta de seguimiento.
 4. **Pregunta de seguimiento (Transición a `DEFINED_SEARCH`):**
    - Al final del mensaje (`reply`), pregunta al usuario **cuál de los 5 destinos le gustaría elegir** y pídele **únicamente los datos que aún falten en `draft`** (por ejemplo, días o fechas, presupuesto máximo y si prefiere **vuelo directo o con escalas**).

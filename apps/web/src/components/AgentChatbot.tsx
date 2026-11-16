@@ -77,9 +77,11 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
+  const isConversationFinished = messages.some((m) => Boolean(m.alertCreated));
+
   const sendMessage = async (textToSend: string) => {
     const trimmed = textToSend.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loading || isConversationFinished) return;
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -145,6 +147,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
 
   const handleResetSession = () => {
     setSessionId(`vera-chat-${Date.now()}`);
+    setInput("");
     setMessages([
       {
         id: `welcome-${Date.now()}`,
@@ -373,8 +376,10 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
 
               <div className="whitespace-pre-line">{msg.text}</div>
 
-              {/* Tarjetas interactivas de las 5 recomendaciones */}
-              {msg.recommendations && msg.recommendations.length > 0 && (
+              {/* Tarjetas interactivas de las 5 recomendaciones (solo cuando está en el recomendador) */}
+              {msg.skill === "DESTINATION_RECOMMENDER" &&
+                msg.recommendations &&
+                msg.recommendations.length > 0 && (
                 <div className="mt-3 space-y-2">
                   <div className="text-[11px] font-semibold text-[#0077b6]">
                     Elige uno de estos destinos para preparar tu alerta:
@@ -553,57 +558,77 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         )}
       </div>
 
-      {/* Píldoras de sugerencias e input inferior */}
+      {/* Píldoras de sugerencias e input inferior (o botón de Nueva consulta tras lanzar alerta) */}
       <div className="p-3.5 border-t border-slate-100 bg-white space-y-2.5">
-        <div
-          role="group"
-          aria-label="Sugerencias de consulta rápida"
-          className={
-            isExpanded
-              ? "grid grid-cols-1 sm:grid-cols-2 gap-2"
-              : "flex flex-col items-start gap-1.5 max-h-24 overflow-y-auto"
-          }
-        >
-          {SUGGESTED_PROMPTS.map((item) => (
+        {isConversationFinished ? (
+          <div className="flex flex-col items-center gap-2 py-1">
+            <p className="text-[11px] text-slate-600 text-center">
+              Esta consulta ha finalizado tras activar tu alerta.
+            </p>
             <button
-              key={item.label}
               type="button"
-              onClick={() => sendMessage(item.prompt)}
-              className={`text-left px-3 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200/80 hover:border-cyan-300 text-[11px] font-medium text-[#0b2545] transition cursor-pointer truncate max-w-full ${
-                isExpanded ? "w-full py-1.5 px-3.5" : "py-1"
-              }`}
+              onClick={handleResetSession}
+              className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-[#0e3968] to-[#00a8e8] hover:opacity-95 text-white font-semibold text-xs flex items-center justify-center gap-2 transition shadow-sm cursor-pointer"
             >
-              {item.label}
+              <span aria-hidden="true">✨</span>
+              <span>Nueva consulta</span>
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <>
+            {messages.length === 1 && !input.trim() && (
+              <div
+                role="group"
+                aria-label="Sugerencias de consulta rápida"
+                className={
+                  isExpanded
+                    ? "grid grid-cols-1 sm:grid-cols-2 gap-2"
+                    : "flex flex-col items-start gap-1.5 max-h-24 overflow-y-auto"
+                }
+              >
+                {SUGGESTED_PROMPTS.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => sendMessage(item.prompt)}
+                    className={`text-left px-3 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200/80 hover:border-cyan-300 text-[11px] font-medium text-[#0b2545] transition cursor-pointer truncate max-w-full ${
+                      isExpanded ? "w-full py-1.5 px-3.5" : "py-1"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            sendMessage(input);
-          }}
-          className="relative flex items-center gap-2"
-        >
-          <label htmlFor="vera-chat-input" className="sr-only">
-            Escribe tu mensaje para Vera
-          </label>
-          <input
-            id="vera-chat-input"
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ej.: vuelos a Roma de viernes a domingo en noviembre..."
-            className="w-full pl-3.5 pr-20 py-2.5 rounded-2xl bg-[#f8fafc] border border-slate-200 text-xs text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="absolute right-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#0e3968] to-[#00a8e8] text-white font-semibold text-xs transition disabled:opacity-40 cursor-pointer"
-          >
-            Enviar
-          </button>
-        </form>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendMessage(input);
+              }}
+              className="relative flex items-center gap-2"
+            >
+              <label htmlFor="vera-chat-input" className="sr-only">
+                Escribe tu mensaje para Vera
+              </label>
+              <input
+                id="vera-chat-input"
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ej.: vuelos a Roma de viernes a domingo en noviembre..."
+                className="w-full pl-3.5 pr-20 py-2.5 rounded-2xl bg-[#f8fafc] border border-slate-200 text-xs text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
+              />
+              <button
+                type="submit"
+                disabled={loading || !input.trim()}
+                className="absolute right-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#0e3968] to-[#00a8e8] text-white font-semibold text-xs transition disabled:opacity-40 cursor-pointer"
+              >
+                Enviar
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </section>
   );

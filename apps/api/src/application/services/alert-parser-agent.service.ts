@@ -601,19 +601,6 @@ export class AlertParserAgentService {
       state.recommendations = verifiedRecs;
 
       const adultsCount = state.draft.adults ?? 1;
-      const listText = verifiedRecs
-        .map((r, i) => {
-          const directBadge = r.hasDirectFlights
-            ? `✈️ Vuelo directo desde ${originIata}`
-            : `🔄 Con escalas desde ${originIata}`;
-          const priceLabel =
-            adultsCount > 1
-              ? `~${r.estimatedPriceEur}€/pers. · ~${r.estimatedPriceEur * adultsCount}€ total`
-              : `~${r.estimatedPriceEur}€`;
-          return `${i + 1}. **${r.city} (${r.iataCode})** - ${r.country} (${priceLabel}) · *${directBadge}*: ${r.reason}`;
-        })
-        .join('\n');
-
       const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
       const budgetContext =
         adultsCount > 1 && state.draft.maxPriceEur !== undefined
@@ -621,9 +608,7 @@ export class AlertParserAgentService {
           : '';
 
       const reply = [
-        `🌟 Aquí tienes **5 recomendaciones de destinos ${themeName}** saliendo desde **${originIata}**${budgetContext} (tras comprobar si disponen de vuelos directos):`,
-        '',
-        listText,
+        `🌟 Aquí tienes 5 recomendaciones de destinos ${themeName} saliendo desde ${originIata}${budgetContext} (he comprobado cuáles disponen de vuelos directos desde tu origen).`,
         '',
         `¿Cuál de estos 5 destinos te gustaría elegir? Cuando elijas uno, dime también ${missingAfterRec}.`,
       ].join('\n');
@@ -642,6 +627,10 @@ export class AlertParserAgentService {
     // Skill 1: DEFINED_SEARCH (o transición desde recomendador cuando elige un destino)
     state.activeSkill = 'DEFINED_SEARCH';
     this.extractEntitiesIntoDraft(prompt, state);
+    if (state.draft.destinationIata) {
+      state.recommendations = undefined;
+      state.pendingRecommendationPrompt = undefined;
+    }
 
     if (this.isDraftComplete(state.draft)) {
       state.awaitingConfirmation = true;
@@ -796,8 +785,13 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
         const parsed = JSON.parse(rawText);
-        state.activeSkill =
-          wantsRecommendation || isCompletingPendingRecommendation
+        const choseRecommendedDestination = this.hasExplicitDestinationChoice(
+          prompt,
+          state.recommendations,
+        );
+        state.activeSkill = choseRecommendedDestination
+          ? 'DEFINED_SEARCH'
+          : wantsRecommendation || isCompletingPendingRecommendation
             ? 'DESTINATION_RECOMMENDER'
             : parsed.activeSkill || 'DEFINED_SEARCH';
 
@@ -823,6 +817,13 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             state.draft.rawMaxPriceEur = Number(state.draft.maxPriceEur);
           }
           this.normalizeDraftFields(state.draft);
+        }
+
+        // Si ya eligió un destino o está en DEFINED_SEARCH, limpiar recomendaciones previas para no volver a mostrarlas
+        if (state.activeSkill === 'DEFINED_SEARCH' || state.draft.destinationIata) {
+          state.activeSkill = 'DEFINED_SEARCH';
+          state.recommendations = undefined;
+          state.pendingRecommendationPrompt = undefined;
         }
 
         // Regla obligatoria en DESTINATION_RECOMMENDER: pedir origen (y aclarar presupuesto por persona vs total si hay >1 pasajero) antes de buscar
@@ -921,28 +922,13 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           state.recommendations = verifiedRecs;
 
           const adultsCount = state.draft.adults ?? 1;
-          const listText = verifiedRecs
-            .map((r, i) => {
-              const directBadge = r.hasDirectFlights
-                ? `✈️ Vuelo directo desde ${state.draft.originIata}`
-                : `🔄 Con escalas desde ${state.draft.originIata}`;
-              const priceLabel =
-                adultsCount > 1
-                  ? `~${r.estimatedPriceEur}€/pers. · ~${r.estimatedPriceEur * adultsCount}€ total`
-                  : `~${r.estimatedPriceEur}€`;
-              return `${i + 1}. **${r.city} (${r.iataCode})** - ${r.country} (${priceLabel}) · *${directBadge}*: ${r.reason}`;
-            })
-            .join('\n');
-
           const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
           const budgetContext =
             adultsCount > 1 && state.draft.maxPriceEur !== undefined
               ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
               : '';
           const recReply = [
-            `🌟 Aquí tienes **5 recomendaciones de destinos** saliendo desde **${state.draft.originIata}**${budgetContext} (tras comprobar si disponen de vuelos directos):`,
-            '',
-            listText,
+            `🌟 Aquí tienes 5 recomendaciones de destinos saliendo desde ${state.draft.originIata}${budgetContext} (he comprobado cuáles disponen de vuelos directos desde tu origen).`,
             '',
             `¿Cuál de estos 5 destinos te gustaría elegir? Cuando elijas uno, dime también ${missingAfterRec}.`,
           ].join('\n');
@@ -1015,7 +1001,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           clarificationMessage: sanitizedReply,
           isComplete: false,
           awaitingConfirmation: false,
-          recommendations: state.recommendations,
+          recommendations:
+            state.activeSkill === 'DESTINATION_RECOMMENDER' ? state.recommendations : undefined,
           draftData: state.draft,
         };
       }
