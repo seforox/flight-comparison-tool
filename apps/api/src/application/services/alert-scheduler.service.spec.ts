@@ -76,4 +76,17 @@ describe('AlertSchedulerService', () => {
     });
     expect(mockQueue.add).not.toHaveBeenCalled();
   });
+
+  it('should flag TRIGGERED alerts with completion prompt when handleCron runs and they have not been completed', async () => {
+    mockPrisma.alert.findMany
+      .mockResolvedValueOnce([{ id: 'triggered-alert-1' }])
+      .mockResolvedValueOnce([]);
+
+    await scheduler.handleCron();
+
+    expect(scheduler.hasCompletionPrompt('triggered-alert-1')).toBe(true);
+
+    await scheduler.clearCompletionPrompt('triggered-alert-1');
+    expect(scheduler.hasCompletionPrompt('triggered-alert-1')).toBe(false);
+  });
 });

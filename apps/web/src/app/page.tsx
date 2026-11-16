@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   api,
+  AlertStatus,
   FlightAlert,
   UserProfile,
   getCachedAirport,
@@ -23,7 +24,13 @@ export default function DashboardPage() {
   const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [navTab, setNavTab] = useState<"comparador" | "alertas">("comparador");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | AlertStatus>("ALL");
+  const [directFilter, setDirectFilter] = useState<"ALL" | "DIRECT" | "LAYOVER">("ALL");
+  const [mobileVisibleCount, setMobileVisibleCount] = useState<number>(3);
+  const [isMobileView, setIsMobileView] = useState<boolean>(false);
   const [dismissToast, setDismissToast] = useState(false);
+  const [cronPromptedIds, setCronPromptedIds] = useState<Record<string, boolean>>({});
+  const seenTriggeredIdsRef = useRef<Set<string>>(new Set());
 
   // Modal de configuración de Telegram
   const [showTelegramModal, setShowTelegramModal] = useState(false);
@@ -31,6 +38,15 @@ export default function DashboardPage() {
   const [savingTelegram, setSavingTelegram] = useState(false);
 
   const searchesSectionRef = useRef<HTMLDivElement>(null);
+
+  const handleKeepTriggeredAlert = useCallback((alertId: string) => {
+    seenTriggeredIdsRef.current.delete(alertId);
+    setCronPromptedIds((prev) => {
+      const next = { ...prev };
+      delete next[alertId];
+      return next;
+    });
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -41,6 +57,13 @@ export default function DashboardPage() {
       setUser(profileData);
       setTelegramInput(profileData.telegramChatId || "");
       setAlerts(alertsData);
+      for (const a of alertsData) {
+        if (a.status === "TRIGGERED") {
+          seenTriggeredIdsRef.current.add(a.id);
+        } else {
+          seenTriggeredIdsRef.current.delete(a.id);
+        }
+      }
       setSelectedAlertId((prev) => {
         if (prev && alertsData.some((a) => a.id === prev)) return prev;
         return alertsData[0]?.id || null;
@@ -60,6 +83,21 @@ export default function DashboardPage() {
         .list()
         .then((data) => {
           setAlerts(data);
+          setCronPromptedIds((prev) => {
+            const next = { ...prev };
+            for (const a of data) {
+              if (a.status === "TRIGGERED") {
+                if (seenTriggeredIdsRef.current.has(a.id) || a.pendingCompletionPrompt) {
+                  next[a.id] = true;
+                }
+                seenTriggeredIdsRef.current.add(a.id);
+              } else {
+                seenTriggeredIdsRef.current.delete(a.id);
+                delete next[a.id];
+              }
+            }
+            return next;
+          });
           setSelectedAlertId((prev) => {
             if (prev && data.some((a) => a.id === prev)) return prev;
             return data[0]?.id || null;
@@ -69,6 +107,19 @@ export default function DashboardPage() {
     }, 15000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  useEffect(() => {
+    const checkViewport = () => {
+      setIsMobileView(window.innerWidth < 640);
+    };
+    checkViewport();
+    window.addEventListener("resize", checkViewport);
+    return () => window.removeEventListener("resize", checkViewport);
+  }, []);
+
+  useEffect(() => {
+    setMobileVisibleCount(3);
+  }, [statusFilter, directFilter, navTab]);
 
   useEffect(() => {
     if (!showTelegramModal) return;
@@ -148,12 +199,25 @@ export default function DashboardPage() {
 
   const searchingCount = alerts.filter((a) => a.status === "ACTIVE").length;
   const foundCount = alerts.filter((a) => a.status === "TRIGGERED").length;
+  const pausedCount = alerts.filter((a) => a.status === "PAUSED").length;
+  const completedCount = alerts.filter((a) => a.status === "COMPLETED").length;
   const activeOrTriggeredCount = alerts.filter(
     (a) => a.status === "ACTIVE" || a.status === "TRIGGERED"
   ).length;
 
+  const latestAlert = alerts[0] || null;
+
+  const filteredAlerts = alerts.filter((a) => {
+    if (statusFilter !== "ALL" && a.status !== statusFilter) return false;
+    if (directFilter === "DIRECT" && !a.directOnly) return false;
+    if (directFilter === "LAYOVER" && a.directOnly) return false;
+    return true;
+  });
+
   const selectedAlert =
-    alerts.find((a) => a.id === selectedAlertId) || alerts[0] || null;
+    filteredAlerts.find((a) => a.id === selectedAlertId) ||
+    filteredAlerts[0] ||
+    null;
 
   const featuredTriggeredAlert =
     alerts.find((a) => a.status === "TRIGGERED") || null;
@@ -385,143 +449,417 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* Contenido Principal: "Tus búsquedas" a ancho completo + Chat flotante en esquina inferior derecha */}
+      {/* Contenido Principal según la pestaña activa ("comparador" vs "alertas") */}
       <main
         id="main-content"
         ref={searchesSectionRef}
         className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-32"
       >
-        <div className="space-y-5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-lg font-extrabold text-[#0b2545] tracking-tight">
-              Tus búsquedas
-            </h2>
-            <span className="text-xs font-medium text-slate-500">
-              {alerts.length} activas o archivadas
-            </span>
-          </div>
-
-          {alerts.length === 0 ? (
-            <div className="bg-white border border-slate-200/80 rounded-3xl p-8 sm:p-12 text-center shadow-xs">
-              <div aria-hidden="true" className="text-3xl mb-2">
-                🛫
+        {navTab === "comparador" ? (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-extrabold text-[#0b2545] tracking-tight">
+                  Última búsqueda
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Detalle en tiempo real de la última alerta creada
+                </p>
               </div>
-              <h3 className="text-base font-bold text-[#0b2545]">
-                Aún no tienes búsquedas creadas
-              </h3>
-              <p className="text-xs text-slate-600 mt-1 max-w-md mx-auto">
-                Usa el buscador superior o abre el chat de Vera en la esquina
-                inferior derecha para preparar tu primera alerta.
-              </p>
+              {alerts.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setNavTab("alertas")}
+                  className="px-3.5 py-1.5 rounded-full bg-white hover:bg-sky-50 border border-slate-200 hover:border-cyan-300 text-xs font-semibold text-[#0077b6] transition cursor-pointer shadow-2xs"
+                >
+                  Ver todas en Mis alertas ({alerts.length}) →
+                </button>
+              )}
             </div>
-          ) : (
-            <>
-              {/* Fila de mini-tarjetas seleccionables */}
+
+            {!latestAlert ? (
+              <div className="bg-white border border-slate-200/80 rounded-3xl p-8 sm:p-12 text-center shadow-xs">
+                <div aria-hidden="true" className="text-3xl mb-2">
+                  🛫
+                </div>
+                <h3 className="text-base font-bold text-[#0b2545]">
+                  Aún no tienes búsquedas creadas
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 max-w-md mx-auto">
+                  Usa el buscador superior o abre el chat de Vera en la esquina
+                  inferior derecha para preparar tu primera alerta.
+                </p>
+              </div>
+            ) : (
+              <AlertCard
+                alert={latestAlert}
+                onRefresh={loadData}
+                showCompletionPrompt={Boolean(
+                  latestAlert.pendingCompletionPrompt ||
+                    cronPromptedIds[latestAlert.id]
+                )}
+                onKeepAlert={handleKeepTriggeredAlert}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-[#0b2545] tracking-tight">
+                  Mis alertas
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Consulta todas tus alertas y fíltralas por tipo de alerta o escalas
+                </p>
+              </div>
+              <span className="text-xs font-medium text-slate-500">
+                Mostrando {filteredAlerts.length} de {alerts.length} alertas
+              </span>
+            </div>
+
+            {/* Barra de filtros por tipo/estado de alerta y tipo de vuelo */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-2xs">
               <div
                 role="group"
-                aria-label="Lista de tus alertas de vuelo"
-                className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5"
+                aria-label="Filtrar por tipo de alerta"
+                className="flex flex-wrap items-center gap-1.5"
               >
-                {alerts.map((item) => {
-                  const isSelected = selectedAlert?.id === item.id;
-                  const pill = STATUS_PILLS[item.status] || STATUS_PILLS.ACTIVE;
-                  const displayPrice = getBestPriceForAlert(item);
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      aria-pressed={isSelected}
-                      onClick={() => setSelectedAlertId(item.id)}
-                      className={`text-left rounded-2xl p-4 bg-white transition-all cursor-pointer border ${
-                        isSelected
-                          ? "border-[#2596d4] ring-2 ring-[#2596d4]/15 shadow-sm"
-                          : "border-slate-200/80 hover:border-slate-300 shadow-2xs"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <div className="text-xs font-extrabold text-[#0b2545] flex items-center gap-1">
-                          <span>{item.originIata}</span>
-                          <span aria-hidden="true" className="text-[#0096c7]">
-                            →
-                          </span>
-                          <span className="sr-only">a</span>
-                          <span>{item.destinationIata}</span>
-                        </div>
-                        <span className="text-xs font-extrabold text-[#0b2545]">
-                          {displayPrice} €
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] text-slate-600 truncate mt-1">
-                        {getCityName(item.destinationIata)} ·{" "}
-                        {formatShortDate(item.startDate)} –{" "}
-                        {formatShortDate(item.endDate)}
-                      </div>
-
-                      <div className="mt-2.5">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${pill.classes}`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`w-1.5 h-1.5 rounded-full ${pill.dot}`}
-                          />
-                          {pill.label}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("ALL")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+                    statusFilter === "ALL"
+                      ? "bg-[#0e2a47] text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200/70"
+                  }`}
+                >
+                  Todas ({alerts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("TRIGGERED")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                    statusFilter === "TRIGGERED"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      statusFilter === "TRIGGERED" ? "bg-white" : "bg-emerald-500"
+                    }`}
+                  />
+                  <span>Vuelo encontrado ({foundCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("ACTIVE")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                    statusFilter === "ACTIVE"
+                      ? "bg-blue-600 text-white"
+                      : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      statusFilter === "ACTIVE" ? "bg-white" : "bg-blue-500"
+                    }`}
+                  />
+                  <span>Buscando ({searchingCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("PAUSED")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                    statusFilter === "PAUSED"
+                      ? "bg-amber-600 text-white"
+                      : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200/80"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      statusFilter === "PAUSED" ? "bg-white" : "bg-amber-500"
+                    }`}
+                  />
+                  <span>En pausa ({pausedCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("COMPLETED")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                    statusFilter === "COMPLETED"
+                      ? "bg-amber-700 text-white"
+                      : "bg-amber-50/80 text-amber-800 hover:bg-amber-100 border border-amber-300"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      statusFilter === "COMPLETED" ? "bg-white" : "bg-amber-500"
+                    }`}
+                  />
+                  <span>Completadas ({completedCount})</span>
+                </button>
               </div>
 
-              {/* Vista detallada de la alerta seleccionada */}
-              {selectedAlert && (
-                <AlertCard alert={selectedAlert} onRefresh={loadData} />
-              )}
-            </>
-          )}
-        </div>
+              <div
+                role="group"
+                aria-label="Filtrar por tipo de vuelo"
+                className="inline-flex items-center rounded-xl bg-slate-100 p-1 self-start lg:self-auto"
+              >
+                <button
+                  type="button"
+                  onClick={() => setDirectFilter("ALL")}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                    directFilter === "ALL"
+                      ? "bg-white text-[#0b2545] shadow-2xs"
+                      : "text-slate-600 hover:text-[#0b2545]"
+                  }`}
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDirectFilter("DIRECT")}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                    directFilter === "DIRECT"
+                      ? "bg-white text-[#0b2545] shadow-2xs"
+                      : "text-slate-600 hover:text-[#0b2545]"
+                  }`}
+                >
+                  ✈️ Solo directo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDirectFilter("LAYOVER")}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                    directFilter === "LAYOVER"
+                      ? "bg-white text-[#0b2545] shadow-2xs"
+                      : "text-slate-600 hover:text-[#0b2545]"
+                  }`}
+                >
+                  🔄 Con escalas
+                </button>
+              </div>
+            </div>
+
+            {filteredAlerts.length === 0 ? (
+              <div className="bg-white border border-slate-200/80 rounded-3xl p-8 sm:p-12 text-center shadow-xs">
+                <div aria-hidden="true" className="text-3xl mb-2">
+                  🔔
+                </div>
+                <h3 className="text-base font-bold text-[#0b2545]">
+                  No hay alertas que coincidan con el filtro seleccionado
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 max-w-md mx-auto">
+                  Cambia el filtro superior para ver el resto de tus alertas.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Fila de mini-tarjetas seleccionables (en móvil: máx. 3 visibles y paginación por scroll) */}
+                <div
+                  role="group"
+                  aria-label="Lista de tus alertas de vuelo"
+                  onScroll={(e) => {
+                    if (!isMobileView) return;
+                    const el = e.currentTarget;
+                    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+                      setMobileVisibleCount((prev) =>
+                        Math.min(prev + 3, filteredAlerts.length)
+                      );
+                    }
+                  }}
+                  className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 max-h-[318px] overflow-y-auto snap-y snap-mandatory pr-1 sm:max-h-none sm:overflow-visible sm:pr-0"
+                >
+                  {(isMobileView
+                    ? filteredAlerts.slice(0, mobileVisibleCount)
+                    : filteredAlerts
+                  ).map((item) => {
+                    const isSelected = selectedAlert?.id === item.id;
+                    const isCompleted = item.status === "COMPLETED";
+                    const pill = STATUS_PILLS[item.status] || STATUS_PILLS.ACTIVE;
+                    const displayPrice = getBestPriceForAlert(item);
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setSelectedAlertId(item.id)}
+                        className={`snap-start text-left rounded-2xl p-4 transition-all cursor-pointer border ${
+                          isCompleted
+                            ? isSelected
+                              ? "bg-gradient-to-br from-amber-50 via-yellow-50/80 to-amber-100/70 border-amber-400 ring-2 ring-amber-400/30 shadow-sm"
+                              : "bg-gradient-to-br from-amber-50/90 via-yellow-50/60 to-amber-100/50 border-amber-300/90 hover:border-amber-400 shadow-2xs"
+                            : isSelected
+                            ? "bg-white border-[#2596d4] ring-2 ring-[#2596d4]/15 shadow-sm"
+                            : "bg-white border-slate-200/80 hover:border-slate-300 shadow-2xs"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="text-xs font-extrabold text-[#0b2545] flex items-center gap-1 truncate">
+                            <span>{getCityName(item.originIata)}</span>
+                            <span aria-hidden="true" className="text-[#0096c7]">
+                              →
+                            </span>
+                            <span className="sr-only">a</span>
+                            <span>{getCityName(item.destinationIata)}</span>
+                          </div>
+                          <span className="text-xs font-extrabold text-[#0b2545] shrink-0">
+                            {displayPrice} €
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-slate-600 truncate mt-1">
+                          <span className="font-mono text-[10px] text-slate-500">
+                            {item.originIata}–{item.destinationIata}
+                          </span>{" "}
+                          · {formatShortDate(item.startDate)} –{" "}
+                          {formatShortDate(item.endDate)}
+                        </div>
+
+                        <div className="mt-2.5 flex items-center justify-between gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${pill.classes}`}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`w-1.5 h-1.5 rounded-full ${pill.dot}`}
+                            />
+                            {pill.label}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-500">
+                            {item.directOnly ? "✈️ Directo" : "🔄 Escalas"}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {isMobileView && filteredAlerts.length > 3 && (
+                  <p className="text-[11px] text-slate-500 text-center sm:hidden">
+                    Desliza hacia abajo en la lista para ver más alertas (
+                    {Math.min(mobileVisibleCount, filteredAlerts.length)} de{" "}
+                    {filteredAlerts.length})
+                  </p>
+                )}
+
+                {/* Vista detallada de la alerta seleccionada */}
+                {selectedAlert && (
+                  <AlertCard
+                    alert={selectedAlert}
+                    onRefresh={loadData}
+                    collapsibleDates
+                    showCompletionPrompt={Boolean(
+                      selectedAlert.pendingCompletionPrompt ||
+                        cronPromptedIds[selectedAlert.id]
+                    )}
+                    onKeepAlert={handleKeepTriggeredAlert}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Widget del Chat de Agente IA (minimizado por defecto en esquina inferior derecha) */}
       <AgentChatbot onAlertCreated={loadData} />
 
-      {/* Notificación flotante verde (en escritorio abajo a la izquierda; en móvil arriba de la barra del chat) */}
+      {/* Notificación flotante (en escritorio abajo a la izquierda; en móvil arriba de la barra del chat) */}
       {featuredTriggeredAlert && !dismissToast && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-24 left-4 right-4 sm:right-auto sm:bottom-5 sm:left-5 z-40 sm:max-w-sm bg-[#e7f8ef] border border-emerald-300/90 rounded-2xl px-4 py-3 shadow-xl flex items-center gap-3"
+          className={`fixed bottom-24 left-4 right-4 sm:right-auto sm:bottom-5 sm:left-5 z-40 sm:max-w-md rounded-2xl px-4 py-3 shadow-xl border ${
+            featuredTriggeredAlert.pendingCompletionPrompt ||
+            cronPromptedIds[featuredTriggeredAlert.id]
+              ? "bg-amber-50 border-amber-300"
+              : "bg-[#e7f8ef] border-emerald-300/90"
+          }`}
         >
-          <span
-            aria-hidden="true"
-            className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-700 flex items-center justify-center text-xs font-bold shrink-0"
-          >
-            ✓
-          </span>
-          <button
-            type="button"
-            onClick={() => setSelectedAlertId(featuredTriggeredAlert.id)}
-            className="text-left cursor-pointer pr-2 flex-1"
-          >
-            <div className="text-xs font-extrabold text-emerald-900">
-              ¡Vuelo encontrado desde{" "}
-              {getBestPriceForAlert(featuredTriggeredAlert)} €!
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden="true"
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                featuredTriggeredAlert.pendingCompletionPrompt ||
+                cronPromptedIds[featuredTriggeredAlert.id]
+                  ? "bg-amber-400/25 text-amber-800"
+                  : "bg-emerald-500/20 text-emerald-700"
+              }`}
+            >
+              {featuredTriggeredAlert.pendingCompletionPrompt ||
+              cronPromptedIds[featuredTriggeredAlert.id]
+                ? "⏰"
+                : "✓"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedAlertId(featuredTriggeredAlert.id)}
+              className="text-left cursor-pointer pr-2 flex-1"
+            >
+              <div className="text-xs font-extrabold text-[#0b2545]">
+                ¡Vuelo encontrado desde{" "}
+                {getBestPriceForAlert(featuredTriggeredAlert)} €! (
+                {getCityName(featuredTriggeredAlert.originIata)} →{" "}
+                {getCityName(featuredTriggeredAlert.destinationIata)})
+              </div>
+              <div className="text-[11px] font-medium text-slate-600 mt-0.5">
+                {featuredTriggeredAlert.pendingCompletionPrompt ||
+                cronPromptedIds[featuredTriggeredAlert.id]
+                  ? "Sigue sin completarse tras la revisión periódica. ¿Quieres completarla o mantenerla?"
+                  : "Pulsa para ver las fechas encontradas"}
+              </div>
+            </button>
+            <button
+              type="button"
+              aria-label="Cerrar aviso de vuelo encontrado"
+              onClick={() => setDismissToast(true)}
+              className="text-slate-500 hover:text-slate-800 text-xs font-bold ml-auto p-1 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+
+          {(featuredTriggeredAlert.pendingCompletionPrompt ||
+            cronPromptedIds[featuredTriggeredAlert.id]) && (
+            <div className="mt-2.5 pt-2.5 border-t border-amber-200/80 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  await api.alerts.updateStatus(
+                    featuredTriggeredAlert.id,
+                    "COMPLETED"
+                  );
+                  handleKeepTriggeredAlert(featuredTriggeredAlert.id);
+                  loadData();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer transition"
+              >
+                📥 Completar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  handleKeepTriggeredAlert(featuredTriggeredAlert.id);
+                  await api.alerts.updateStatus(
+                    featuredTriggeredAlert.id,
+                    "ACTIVE"
+                  );
+                  loadData();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 text-[#0b2545] text-xs font-semibold cursor-pointer transition"
+              >
+                🧭 Mantener
+              </button>
             </div>
-            <div className="text-[11px] font-medium text-emerald-700">
-              {getCityName(featuredTriggeredAlert.originIata)} →{" "}
-              {getCityName(featuredTriggeredAlert.destinationIata)}
-            </div>
-          </button>
-          <button
-            type="button"
-            aria-label="Cerrar aviso de vuelo encontrado"
-            onClick={() => setDismissToast(true)}
-            className="text-emerald-700/70 hover:text-emerald-950 text-xs font-bold ml-auto p-1 cursor-pointer"
-          >
-            ✕
-          </button>
+          )}
         </div>
       )}
 

@@ -9,12 +9,48 @@ import { FlightSearchJobPayload } from './flight-search-processor.service';
 @Injectable()
 export class AlertSchedulerService {
   private readonly logger = new Logger(AlertSchedulerService.name);
+  private readonly promptedTriggeredAlerts = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly dateCalculator: FlightDateCalculatorService,
     @InjectQueue('flight-search-queue') private readonly flightSearchQueue: Queue<FlightSearchJobPayload>,
   ) {}
+
+  hasCompletionPrompt(alertId: string): boolean {
+    return this.promptedTriggeredAlerts.has(alertId);
+  }
+
+  async markCompletionPrompt(alertId: string): Promise<void> {
+    this.promptedTriggeredAlerts.add(alertId);
+    if ((this.prisma as any).$executeRawUnsafe) {
+      try {
+        await (this.prisma as any).$executeRawUnsafe(
+          `ALTER TABLE "Alert" ADD COLUMN IF NOT EXISTS "pendingCompletionPrompt" BOOLEAN NOT NULL DEFAULT false`,
+        );
+        await (this.prisma as any).$executeRawUnsafe(
+          `UPDATE "Alert" SET "pendingCompletionPrompt" = true WHERE "id" = $1`,
+          alertId,
+        );
+      } catch {
+        // ignore if raw SQL not supported in test mock
+      }
+    }
+  }
+
+  async clearCompletionPrompt(alertId: string): Promise<void> {
+    this.promptedTriggeredAlerts.delete(alertId);
+    if ((this.prisma as any).$executeRawUnsafe) {
+      try {
+        await (this.prisma as any).$executeRawUnsafe(
+          `UPDATE "Alert" SET "pendingCompletionPrompt" = false WHERE "id" = $1`,
+          alertId,
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   async enqueueAlert(alertId: string): Promise<number> {
     const alert = await this.prisma.alert.findUnique({
@@ -113,17 +149,34 @@ export class AlertSchedulerService {
 
   @Cron(process.env.ALERT_CRON_SCHEDULE || '0 */6 * * *')
   async handleCron(): Promise<void> {
-    this.logger.log('Ejecutando Cron Job de revisión de alertas activas...');
+    this.logger.log('Ejecutando Cron Job de revisión de alertas...');
+
+    // 1. Alertas en estado TRIGGERED (Vuelo encontrado) que el usuario aún no ha cambiado a COMPLETED
+    const triggeredAlerts = await this.prisma.alert.findMany({
+      where: { status: 'TRIGGERED' as any },
+      select: { id: true },
+    });
+
+    for (const triggered of triggeredAlerts || []) {
+      await this.markCompletionPrompt(triggered.id);
+      this.logger.log(
+        `Alerta ${triggered.id} sigue en TRIGGERED al pasar el Cron sin completarse: ofreciendo completarla o mantenerla.`,
+      );
+    }
+
+    // 2. Alertas en estado ACTIVE
     const activeAlerts = await this.prisma.alert.findMany({
       where: { status: 'ACTIVE' },
       select: { id: true },
     });
 
     let totalJobs = 0;
-    for (const alert of activeAlerts) {
+    for (const alert of activeAlerts || []) {
       totalJobs += await this.enqueueAlert(alert.id);
     }
 
-    this.logger.log(`Cron finalizado: ${activeAlerts.length} alertas revisadas (${totalJobs} trabajos encolados).`);
+    this.logger.log(
+      `Cron finalizado: ${activeAlerts?.length ?? 0} alertas activas revisadas (${totalJobs} trabajos encolados) y ${triggeredAlerts?.length ?? 0} alertas con vuelo encontrado notificadas para completar o mantener.`,
+    );
   }
 }

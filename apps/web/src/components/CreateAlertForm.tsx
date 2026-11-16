@@ -9,23 +9,35 @@ interface CreateAlertFormProps {
 }
 
 export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
-  const [originIata, setOriginIata] = useState("MAD");
-  const [destinationIata, setDestinationIata] = useState("LON");
-  const [departureDay, setDepartureDay] = useState(5); // Viernes
-  const [returnDay, setReturnDay] = useState(7); // Domingo
-  const [startDate, setStartDate] = useState("2026-11-01");
-  const [endDate, setEndDate] = useState("2026-11-30");
-  const [adults, setAdults] = useState(1);
-  const [directOnly, setDirectOnly] = useState<boolean>(true);
-  const [maxPriceEur, setMaxPriceEur] = useState<string>("100");
+  const [originIata, setOriginIata] = useState("");
+  const [destinationIata, setDestinationIata] = useState("");
+  const [departureDay, setDepartureDay] = useState<string>("");
+  const [returnDay, setReturnDay] = useState<string>("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [adults, setAdults] = useState<string>("");
+  const [directOnly, setDirectOnly] = useState<boolean | null>(null);
+  const [maxPriceEur, setMaxPriceEur] = useState<string>("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setOriginIata("");
+    setDestinationIata("");
+    setDepartureDay("");
+    setReturnDay("");
+    setStartDate("");
+    setEndDate("");
+    setAdults("");
+    setDirectOnly(null);
+    setMaxPriceEur("");
+  };
 
   const handleSwapAirports = () => {
     const temp = originIata;
-    setOriginIata(destinationIata || "MAD");
+    setOriginIata(destinationIata);
     setDestinationIata(temp);
   };
 
@@ -34,14 +46,100 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
     setEndDate(end);
   };
 
+  const quickRangePresets = React.useMemo(() => {
+    const monthsFull = [
+      "Enero",
+      "Febrero",
+      "Marzo",
+      "Abril",
+      "Mayo",
+      "Junio",
+      "Julio",
+      "Agosto",
+      "Septiembre",
+      "Octubre",
+      "Noviembre",
+      "Diciembre",
+    ];
+    const monthsShort = [
+      "ene",
+      "feb",
+      "mar",
+      "abr",
+      "may",
+      "jun",
+      "jul",
+      "ago",
+      "sep",
+      "oct",
+      "nov",
+      "dic",
+    ];
+
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonthIdx = now.getMonth(); // 0..11
+    const curDay = now.getDate();
+
+    const curMonthNum = String(curMonthIdx + 1).padStart(2, "0");
+    const curDayStr = String(curDay).padStart(2, "0");
+    const curMonthLastDay = new Date(curYear, curMonthIdx + 1, 0).getDate();
+    const curMonthLastDayStr = String(curMonthLastDay).padStart(2, "0");
+
+    const nextMonthDate = new Date(curYear, curMonthIdx + 1, 1);
+    const nextYear = nextMonthDate.getFullYear();
+    const nextMonthIdx = nextMonthDate.getMonth();
+    const nextMonthNum = String(nextMonthIdx + 1).padStart(2, "0");
+    const nextMonthLastDay = new Date(nextYear, nextMonthIdx + 1, 0).getDate();
+    const nextMonthLastDayStr = String(nextMonthLastDay).padStart(2, "0");
+
+    return [
+      {
+        label: `${curDay}–${curMonthLastDay} ${monthsShort[curMonthIdx]}`,
+        start: `${curYear}-${curMonthNum}-${curDayStr}`,
+        end: `${curYear}-${curMonthNum}-${curMonthLastDayStr}`,
+      },
+      {
+        label: monthsFull[curMonthIdx],
+        start: `${curYear}-${curMonthNum}-01`,
+        end: `${curYear}-${curMonthNum}-${curMonthLastDayStr}`,
+      },
+      {
+        label: monthsFull[nextMonthIdx],
+        start: `${nextYear}-${nextMonthNum}-01`,
+        end: `${nextYear}-${nextMonthNum}-${nextMonthLastDayStr}`,
+      },
+    ];
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!originIata) {
+      setError("Por favor, elige un aeropuerto de origen.");
+      return;
+    }
     if (!destinationIata) {
       setError("Por favor, elige un aeropuerto de destino.");
       return;
     }
+    if (!departureDay || !returnDay) {
+      setError("Por favor, selecciona el día de salida y el día de regreso.");
+      return;
+    }
+    if (!startDate || !endDate) {
+      setError("Por favor, selecciona el rango de fechas (desde y hasta).");
+      return;
+    }
     if (new Date(startDate) > new Date(endDate)) {
       setError("La fecha de inicio no puede ser posterior a la fecha de fin.");
+      return;
+    }
+    if (!adults) {
+      setError("Por favor, selecciona el número de pasajeros.");
+      return;
+    }
+    if (directOnly === null) {
+      setError("Por favor, elige si prefieres solo vuelo directo o con escalas.");
       return;
     }
     const parsedBudget = Number(maxPriceEur);
@@ -50,8 +148,14 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
       return;
     }
 
+    const depText =
+      WEEKDAYS.find((d) => d.value === Number(departureDay))?.label || "";
+    const retText =
+      WEEKDAYS.find((d) => d.value === Number(returnDay))?.label || "";
+    const directText = directOnly ? "solo vuelos directos" : "con escalas";
+
     setError(null);
-    setSuccess(false);
+    setSuccessMessage(null);
     setLoading(true);
 
     try {
@@ -66,9 +170,12 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
         startDate: new Date(`${startDate}T00:00:00.000Z`).toISOString(),
         endDate: new Date(`${endDate}T23:59:59.999Z`).toISOString(),
       });
-      setSuccess(true);
+      resetForm();
+      setSuccessMessage(
+        `Alerta creada (${directText}) para todos los ${depText} ➔ ${retText} del rango seleccionado.`
+      );
       onAlertCreated();
-      setTimeout(() => setSuccess(false), 4000);
+      setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
       setError(err.message || "Error al crear la alerta");
     } finally {
@@ -76,10 +183,8 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
     }
   };
 
-  const depLabel =
-    WEEKDAYS.find((d) => d.value === departureDay)?.label || "Viernes";
-  const retLabel =
-    WEEKDAYS.find((d) => d.value === returnDay)?.label || "Domingo";
+  const depLabel = WEEKDAYS.find((d) => d.value === Number(departureDay))?.label;
+  const retLabel = WEEKDAYS.find((d) => d.value === Number(returnDay))?.label;
 
   return (
     <form
@@ -93,7 +198,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           label="ORIGEN"
           value={originIata}
           onChange={setOriginIata}
-          placeholder="Elige aeropuerto de origen"
+          placeholder="Ej. Madrid (MAD)"
         />
 
         <div className="flex items-center justify-center md:pb-0.5">
@@ -112,7 +217,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           label="DESTINO"
           value={destinationIata}
           onChange={setDestinationIata}
-          placeholder="Elige aeropuerto de destino"
+          placeholder="Ej. Londres (LON)"
         />
       </div>
 
@@ -128,11 +233,16 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <select
             id="field-departure-day"
             value={departureDay}
-            onChange={(e) => setDepartureDay(Number(e.target.value))}
-            className="w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-sm font-medium text-[#0b2545] focus:outline-none focus:border-[#0096c7] cursor-pointer"
+            onChange={(e) => setDepartureDay(e.target.value)}
+            className={`w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-sm font-medium focus:outline-none focus:border-[#0096c7] cursor-pointer ${
+              departureDay ? "text-[#0b2545]" : "text-slate-400 font-normal"
+            }`}
           >
+            <option value="" disabled>
+              Elige día (ej. Viernes)
+            </option>
             {WEEKDAYS.map((d) => (
-              <option key={d.value} value={d.value}>
+              <option key={d.value} value={d.value} className="text-[#0b2545]">
                 Cada {d.label}
               </option>
             ))}
@@ -149,11 +259,16 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <select
             id="field-return-day"
             value={returnDay}
-            onChange={(e) => setReturnDay(Number(e.target.value))}
-            className="w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-sm font-medium text-[#0b2545] focus:outline-none focus:border-[#0096c7] cursor-pointer"
+            onChange={(e) => setReturnDay(e.target.value)}
+            className={`w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-sm font-medium focus:outline-none focus:border-[#0096c7] cursor-pointer ${
+              returnDay ? "text-[#0b2545]" : "text-slate-400 font-normal"
+            }`}
           >
+            <option value="" disabled>
+              Elige día (ej. Domingo)
+            </option>
             {WEEKDAYS.map((d) => (
-              <option key={d.value} value={d.value}>
+              <option key={d.value} value={d.value} className="text-[#0b2545]">
                 Cada {d.label}
               </option>
             ))}
@@ -170,10 +285,12 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <input
             id="field-start-date"
             type="date"
-            required
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-xs sm:text-sm font-medium text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
+            placeholder="AAAA-MM-DD"
+            className={`w-full px-3 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-xs sm:text-sm font-medium focus:outline-none focus:border-[#0096c7] ${
+              startDate ? "text-[#0b2545]" : "text-slate-400 font-normal"
+            }`}
           />
         </div>
 
@@ -187,10 +304,12 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <input
             id="field-end-date"
             type="date"
-            required
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-xs sm:text-sm font-medium text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
+            placeholder="AAAA-MM-DD"
+            className={`w-full px-3 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-xs sm:text-sm font-medium focus:outline-none focus:border-[#0096c7] ${
+              endDate ? "text-[#0b2545]" : "text-slate-400 font-normal"
+            }`}
           />
         </div>
 
@@ -204,11 +323,16 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <select
             id="field-adults"
             value={adults}
-            onChange={(e) => setAdults(Number(e.target.value))}
-            className="w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-sm font-medium text-[#0b2545] focus:outline-none focus:border-[#0096c7] cursor-pointer"
+            onChange={(e) => setAdults(e.target.value)}
+            className={`w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 hover:border-slate-300 text-sm font-medium focus:outline-none focus:border-[#0096c7] cursor-pointer ${
+              adults ? "text-[#0b2545]" : "text-slate-400 font-normal"
+            }`}
           >
+            <option value="" disabled>
+              Ej. 1 adulto
+            </option>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-              <option key={num} value={num}>
+              <option key={num} value={num} className="text-[#0b2545]">
                 {num} {num === 1 ? "adulto" : "adultos"}
               </option>
             ))}
@@ -235,10 +359,10 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
               <button
                 type="button"
                 role="radio"
-                aria-checked={directOnly}
+                aria-checked={directOnly === true}
                 onClick={() => setDirectOnly(true)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                  directOnly
+                  directOnly === true
                     ? "bg-[#0b2545] text-white shadow-2xs"
                     : "text-slate-600 hover:text-[#0b2545]"
                 }`}
@@ -249,10 +373,10 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
               <button
                 type="button"
                 role="radio"
-                aria-checked={!directOnly}
+                aria-checked={directOnly === false}
                 onClick={() => setDirectOnly(false)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                  !directOnly
+                  directOnly === false
                     ? "bg-[#0b2545] text-white shadow-2xs"
                     : "text-slate-600 hover:text-[#0b2545]"
                 }`}
@@ -276,11 +400,10 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
                 type="number"
                 min={1}
                 step="1"
-                required
                 value={maxPriceEur}
                 onChange={(e) => setMaxPriceEur(e.target.value)}
-                placeholder="100"
-                className="w-24 sm:w-28 pl-3 pr-7 py-2 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
+                placeholder="Ej. 100"
+                className="w-24 sm:w-28 pl-3 pr-7 py-2 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 placeholder:font-normal focus:outline-none focus:border-[#0096c7]"
               />
               <span
                 aria-hidden="true"
@@ -300,27 +423,16 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
             <span className="text-slate-500 mr-1 hidden xl:inline">
               Rango rápido:
             </span>
-            <button
-              type="button"
-              onClick={() => applyRangePreset("2026-11-01", "2026-11-15")}
-              className="px-2.5 py-1 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200 text-slate-600 hover:text-[#0b2545] transition cursor-pointer"
-            >
-              1–15 nov
-            </button>
-            <button
-              type="button"
-              onClick={() => applyRangePreset("2026-11-01", "2026-11-30")}
-              className="px-2.5 py-1 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200 text-slate-600 hover:text-[#0b2545] transition cursor-pointer"
-            >
-              Noviembre
-            </button>
-            <button
-              type="button"
-              onClick={() => applyRangePreset("2026-12-01", "2026-12-31")}
-              className="px-2.5 py-1 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200 text-slate-600 hover:text-[#0b2545] transition cursor-pointer"
-            >
-              Diciembre
-            </button>
+            {quickRangePresets.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => applyRangePreset(preset.start, preset.end)}
+                className="px-2.5 py-1 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200 text-slate-600 hover:text-[#0b2545] transition cursor-pointer"
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -346,7 +458,9 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <span>
             {loading
               ? "Buscando vuelos..."
-              : `Buscar vuelos (${depLabel} a ${retLabel})`}
+              : depLabel && retLabel
+              ? `Buscar vuelos (${depLabel} a ${retLabel})`
+              : "Buscar vuelos"}
           </span>
         </button>
       </div>
@@ -362,15 +476,14 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
         </div>
       )}
 
-      {success && (
+      {successMessage && (
         <div
           role="status"
           aria-live="polite"
           className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium"
         >
           <span aria-hidden="true">✓ </span>
-          Alerta creada ({directOnly ? "solo vuelos directos" : "con escalas"}) para todos los {depLabel} ➔ {retLabel} del rango
-          seleccionado.
+          {successMessage}
         </div>
       )}
     </form>

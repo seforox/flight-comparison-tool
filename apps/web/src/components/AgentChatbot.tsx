@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { api, DestinationRecommendation } from "@/lib/api";
+import { api, DestinationRecommendation, cacheAirports } from "@/lib/api";
 
 interface ChatMessage {
   id: string;
@@ -95,6 +95,17 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
 
     try {
       const res = await api.agent.chat(trimmed, sessionId);
+
+      if (res.recommendations && res.recommendations.length > 0) {
+        cacheAirports(
+          res.recommendations.map((r) => ({
+            iata: r.iataCode,
+            city: r.city,
+            name: `${r.city} (${r.country})`,
+            country: r.country,
+          }))
+        );
+      }
 
       const asksForDirect =
         !res.awaitingConfirmation &&

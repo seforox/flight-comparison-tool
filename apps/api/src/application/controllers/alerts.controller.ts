@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CreateAlertDto } from '../../domain/dtos/create-alert.dto';
 import { UpdateAlertStatusDto } from '../../domain/dtos/update-alert-status.dto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
@@ -47,7 +47,11 @@ export class AlertsController {
 
   @Post(':id/check')
   async triggerCheck(@Request() req: any, @Param('id') id: string) {
-    await this.ensureOwnership(id, req.user.id);
+    const alert = await this.ensureOwnership(id, req.user.id);
+    if ((alert as any).status === 'COMPLETED') {
+      throw new BadRequestException('Una alerta completada no puede actualizar tarifas.');
+    }
+    await this.alertScheduler.clearCompletionPrompt(id);
     await this.prisma.match.deleteMany({ where: { alertId: id } });
     await this.prisma.alert.update({
       where: { id },
@@ -68,27 +72,96 @@ export class AlertsController {
 
     if ((this.prisma as any).$queryRawUnsafe && alerts.length > 0) {
       try {
+        await (this.prisma as any).$executeRawUnsafe?.(
+          `ALTER TABLE "Alert" ADD COLUMN IF NOT EXISTS "pendingCompletionPrompt" BOOLEAN NOT NULL DEFAULT false`,
+        );
         const flags = await (this.prisma as any).$queryRawUnsafe(
-          `SELECT "id", "directOnly" FROM "Alert" WHERE "userId" = $1`,
+          `SELECT "id", "directOnly", "pendingCompletionPrompt" FROM "Alert" WHERE "userId" = $1`,
           userId,
         );
-        const flagMap = new Map<string, boolean>(
-          (flags || []).map((r: any) => [r.id, Boolean(r.directOnly)]),
+        const flagMap = new Map<string, { directOnly: boolean; pendingCompletionPrompt: boolean }>(
+          (flags || []).map((r: any) => [
+            r.id,
+            {
+              directOnly: Boolean(r.directOnly),
+              pendingCompletionPrompt: Boolean(r.pendingCompletionPrompt),
+            },
+          ]),
         );
         for (const a of alerts as any[]) {
-          a.directOnly = flagMap.get(a.id) ?? Boolean(a.directOnly);
+          const info = flagMap.get(a.id);
+          a.directOnly = info?.directOnly ?? Boolean(a.directOnly);
+          a.pendingCompletionPrompt =
+            a.status === 'TRIGGERED' &&
+            (Boolean(info?.pendingCompletionPrompt) ||
+              this.alertScheduler.hasCompletionPrompt(a.id));
         }
       } catch {
-        // ignore if column not yet queried
+        for (const a of alerts as any[]) {
+          a.pendingCompletionPrompt =
+            a.status === 'TRIGGERED' &&
+            this.alertScheduler.hasCompletionPrompt(a.id);
+        }
+      }
+    } else {
+      for (const a of alerts as any[]) {
+        a.pendingCompletionPrompt =
+          a.status === 'TRIGGERED' &&
+          this.alertScheduler.hasCompletionPrompt(a.id);
       }
     }
 
     return alerts;
   }
 
+  @Patch(':id')
+  async update(@Request() req: any, @Param('id') id: string, @Body() updateAlertDto: CreateAlertDto) {
+    const alert = await this.ensureOwnership(id, req.user.id);
+    if ((alert as any).status === 'COMPLETED') {
+      throw new BadRequestException('Una alerta completada no puede ser modificada.');
+    }
+    const directOnly = Boolean(updateAlertDto.directOnly);
+
+    await this.alertScheduler.clearCompletionPrompt(id);
+    await this.alertScheduler.cancelAlertJobs(id);
+    await this.prisma.match.deleteMany({ where: { alertId: id } });
+
+    const updated = await this.prisma.alert.update({
+      where: { id },
+      data: {
+        originIata: updateAlertDto.originIata,
+        destinationIata: updateAlertDto.destinationIata,
+        departureDay: updateAlertDto.departureDay,
+        returnDay: updateAlertDto.returnDay,
+        adults: updateAlertDto.adults ?? 1,
+        maxPriceEur: updateAlertDto.maxPriceEur,
+        startDate: new Date(updateAlertDto.startDate),
+        endDate: new Date(updateAlertDto.endDate),
+        status: 'ACTIVE' as any,
+      } as any,
+    });
+
+    if ((this.prisma as any).$executeRawUnsafe) {
+      await (this.prisma as any).$executeRawUnsafe(
+        `UPDATE "Alert" SET "directOnly" = $1 WHERE "id" = $2`,
+        directOnly,
+        id,
+      );
+    }
+    (updated as any).directOnly = directOnly;
+
+    await this.alertScheduler.enqueueAlert(id);
+    return updated;
+  }
+
   @Patch(':id/status')
   async updateStatus(@Request() req: any, @Param('id') id: string, @Body() updateStatusDto: UpdateAlertStatusDto) {
-    await this.ensureOwnership(id, req.user.id);
+    const alert = await this.ensureOwnership(id, req.user.id);
+    if ((alert as any).status === 'COMPLETED') {
+      throw new BadRequestException('Una alerta completada no puede volver a activarse.');
+    }
+
+    await this.alertScheduler.clearCompletionPrompt(id);
 
     const updated = await this.prisma.alert.update({
       where: { id },
@@ -114,13 +187,14 @@ export class AlertsController {
     });
   }
 
-  private async ensureOwnership(alertId: string, userId: string): Promise<void> {
+  private async ensureOwnership(alertId: string, userId: string) {
     const alert = await this.prisma.alert.findFirst({
       where: { id: alertId, userId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!alert) {
       throw new NotFoundException('Alerta no encontrada o no pertenece al usuario autenticado');
     }
+    return alert;
   }
 }

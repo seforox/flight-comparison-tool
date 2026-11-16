@@ -512,6 +512,9 @@ export class AlertParserAgentService {
         this.extractOriginFromReply(prompt, state);
         this.extractEntitiesIntoDraft(prompt, state, true);
         if (!state.draft.originIata) {
+          await this.resolveOriginFromDatabase(prompt, state);
+        }
+        if (!state.draft.originIata) {
           state.pendingRecommendationPrompt = `${state.pendingRecommendationPrompt} ${prompt}`;
         }
       }
@@ -1163,6 +1166,33 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     }
 
     return null;
+  }
+
+  private async resolveOriginFromDatabase(prompt: string, state: SessionState): Promise<void> {
+    if (!(this.prisma as any)?.$queryRawUnsafe) return;
+    const candidate = prompt
+      .replace(/^(?:desde|saliendo de|salgo de|soy de|vivo en|origen(?:\s+en)?|el aeropuerto de)\s+/i, '')
+      .replace(/[.,!?]/g, '')
+      .trim();
+    if (!candidate || candidate.length < 3 || candidate.length > 40) return;
+
+    try {
+      const rows = await (this.prisma as any).$queryRawUnsafe(
+        `SELECT "iata" FROM "Airport"
+         WHERE LOWER("city") = LOWER($1)
+            OR LOWER("name") LIKE LOWER($2)
+            OR LOWER("city") LIKE LOWER($2)
+         ORDER BY "popularity" DESC
+         LIMIT 1`,
+        candidate,
+        `${candidate}%`,
+      );
+      if (rows?.[0]?.iata) {
+        state.draft.originIata = String(rows[0].iata).toUpperCase();
+      }
+    } catch {
+      // ignore if table not available in mock tests
+    }
   }
 
   private extractOriginFromReply(prompt: string, state: SessionState): void {

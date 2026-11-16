@@ -46,6 +46,7 @@ export class AirportsController implements OnModuleInit {
     this.totalCount = currentCount;
 
     if (currentCount > 0) {
+      await this.ensureMetroCodesInDb();
       this.logger.log(`Tabla Airport lista con ${currentCount} aeropuertos IATA.`);
       return;
     }
@@ -78,8 +79,27 @@ export class AirportsController implements OnModuleInit {
         ON CONFLICT ("iata") DO NOTHING;
       `);
     }
+    await this.ensureMetroCodesInDb();
     this.totalCount = airports.length;
     this.logger.log(`Sembrados ${airports.length} aeropuertos IATA en PostgreSQL.`);
+  }
+
+  private async ensureMetroCodesInDb() {
+    await this.prisma.$executeRawUnsafe(`
+      INSERT INTO "Airport" ("iata", "name", "city", "country", "popularity")
+      VALUES
+        ('TCI', 'Tenerife Sur / Norte (Todos)', 'Tenerife', 'España', 95),
+        ('MIL', 'Malpensa / Bérgamo / Linate (Todos)', 'Milán', 'Italia', 95),
+        ('NYC', 'JFK / Newark / LaGuardia (Todos)', 'Nueva York', 'Estados Unidos', 99),
+        ('STO', 'Arlanda / Skavsta (Todos)', 'Estocolmo', 'Suecia', 90),
+        ('TYO', 'Haneda / Narita (Todos)', 'Tokio', 'Japón', 97),
+        ('BUE', 'Ezeiza / Aeroparque (Todos)', 'Buenos Aires', 'Argentina', 92),
+        ('SAO', 'Guarulhos / Congonhas (Todos)', 'São Paulo', 'Brasil', 92),
+        ('RIO', 'Galeão / Santos Dumont (Todos)', 'Río de Janeiro', 'Brasil', 90),
+        ('REK', 'Keflavík / Reikiavik (Todos)', 'Reikiavik', 'Islandia', 88),
+        ('BUH', 'Otopeni / Băneasa (Todos)', 'Bucarest', 'Rumanía', 88)
+      ON CONFLICT ("iata") DO NOTHING;
+    `);
   }
 
   @Get()
@@ -152,6 +172,19 @@ export class AirportsController implements OnModuleInit {
       code,
     );
 
-    return rows?.[0] || null;
+    if (rows?.[0]) return rows[0];
+
+    const metroFallbacks: Record<string, AirportRecord> = {
+      TCI: { iata: 'TCI', name: 'Tenerife Sur / Norte (Todos)', city: 'Tenerife', country: 'España', popularity: 95 },
+      ROM: { iata: 'ROM', name: 'Fiumicino / Ciampino (Todos)', city: 'Roma', country: 'Italia', popularity: 98 },
+      LON: { iata: 'LON', name: 'Heathrow / Gatwick / Stansted (Todos)', city: 'Londres', country: 'Reino Unido', popularity: 99 },
+      PAR: { iata: 'PAR', name: 'Charles de Gaulle / Orly / Beauvais (Todos)', city: 'París', country: 'Francia', popularity: 99 },
+      MIL: { iata: 'MIL', name: 'Malpensa / Bérgamo / Linate (Todos)', city: 'Milán', country: 'Italia', popularity: 95 },
+      TYO: { iata: 'TYO', name: 'Haneda / Narita (Todos)', city: 'Tokio', country: 'Japón', popularity: 97 },
+      NYC: { iata: 'NYC', name: 'JFK / Newark / LaGuardia (Todos)', city: 'Nueva York', country: 'EE. UU.', popularity: 99 },
+      STO: { iata: 'STO', name: 'Arlanda / Skavsta (Todos)', city: 'Estocolmo', country: 'Suecia', popularity: 90 },
+    };
+
+    return metroFallbacks[code] || null;
   }
 }

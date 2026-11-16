@@ -29,6 +29,7 @@ export interface FlightAlert {
   returnDay: number;
   adults: number;
   directOnly?: boolean;
+  pendingCompletionPrompt?: boolean;
   maxPriceEur: string | number;
   startDate: string;
   endDate: string;
@@ -95,28 +96,80 @@ export const AIRPORTS_CATALOG: AirportItem[] = [
   { iata: 'BCN', city: 'Barcelona', name: 'Josep Tarradellas Barcelona-El Prat', country: 'España' },
   { iata: 'HND', city: 'Tokio', name: 'Tokyo Haneda International', country: 'Japón' },
   { iata: 'NRT', city: 'Tokio', name: 'Narita International Airport', country: 'Japón' },
-  { iata: 'TYO', city: 'Tokio (Todos)', name: 'Haneda / Narita', country: 'Japón' },
+  { iata: 'TYO', city: 'Tokio', name: 'Haneda / Narita (Todos)', country: 'Japón' },
   { iata: 'AMS', city: 'Ámsterdam', name: 'Amsterdam Airport Schiphol', country: 'Países Bajos' },
   { iata: 'LHR', city: 'Londres', name: 'London Heathrow Airport', country: 'Reino Unido' },
-  { iata: 'LON', city: 'Londres (Todos)', name: 'Heathrow / Gatwick / Stansted', country: 'Reino Unido' },
+  { iata: 'LON', city: 'Londres', name: 'Heathrow / Gatwick / Stansted (Todos)', country: 'Reino Unido' },
   { iata: 'STN', city: 'Londres Stansted', name: 'London Stansted Airport', country: 'Reino Unido' },
+  { iata: 'LGW', city: 'Londres Gatwick', name: 'London Gatwick Airport', country: 'Reino Unido' },
+  { iata: 'LTN', city: 'Londres Luton', name: 'London Luton Airport', country: 'Reino Unido' },
   { iata: 'FCO', city: 'Roma', name: 'Leonardo da Vinci-Fiumicino', country: 'Italia' },
-  { iata: 'ROM', city: 'Roma (Todos)', name: 'Fiumicino / Ciampino', country: 'Italia' },
+  { iata: 'CIA', city: 'Roma Ciampino', name: 'Roma Ciampino Airport', country: 'Italia' },
+  { iata: 'ROM', city: 'Roma', name: 'Fiumicino / Ciampino (Todos)', country: 'Italia' },
   { iata: 'JFK', city: 'Nueva York', name: 'John F. Kennedy International', country: 'EE. UU.' },
-  { iata: 'PAR', city: 'París (Todos)', name: 'Charles de Gaulle / Orly / Beauvais', country: 'Francia' },
+  { iata: 'NYC', city: 'Nueva York', name: 'JFK / Newark / LaGuardia (Todos)', country: 'EE. UU.' },
+  { iata: 'EWR', city: 'Nueva York Newark', name: 'Newark Liberty International', country: 'EE. UU.' },
+  { iata: 'PAR', city: 'París', name: 'Charles de Gaulle / Orly / Beauvais (Todos)', country: 'Francia' },
   { iata: 'CDG', city: 'París', name: 'Charles de Gaulle', country: 'Francia' },
+  { iata: 'ORY', city: 'París Orly', name: 'Paris Orly Airport', country: 'Francia' },
+  { iata: 'BVA', city: 'París Beauvais', name: 'Paris Beauvais-Tillé', country: 'Francia' },
   { iata: 'PMI', city: 'Palma de Mallorca', name: 'Son Sant Joan', country: 'España' },
   { iata: 'AGP', city: 'Málaga', name: 'Málaga-Costa del Sol', country: 'España' },
   { iata: 'ALC', city: 'Alicante', name: 'Alicante-Elche Miguel Hernández', country: 'España' },
+  { iata: 'TCI', city: 'Tenerife', name: 'Tenerife Sur / Norte (Todos)', country: 'España' },
   { iata: 'TFS', city: 'Tenerife Sur', name: 'Reina Sofía', country: 'España' },
+  { iata: 'TFN', city: 'Tenerife Norte', name: 'Ciudad de La Laguna', country: 'España' },
+  { iata: 'LPA', city: 'Gran Canaria', name: 'Aeropuerto de Gran Canaria', country: 'España' },
+  { iata: 'ACE', city: 'Lanzarote', name: 'César Manrique-Lanzarote', country: 'España' },
+  { iata: 'FUE', city: 'Fuerteventura', name: 'Aeropuerto de Fuerteventura', country: 'España' },
+  { iata: 'IBZ', city: 'Ibiza', name: 'Aeropuerto de Ibiza', country: 'España' },
+  { iata: 'MAH', city: 'Menorca', name: 'Aeropuerto de Menorca', country: 'España' },
+  { iata: 'SVQ', city: 'Sevilla', name: 'Aeropuerto de Sevilla-San Pablo', country: 'España' },
+  { iata: 'VLC', city: 'Valencia', name: 'Aeropuerto de Valencia-Manises', country: 'España' },
+  { iata: 'BIO', city: 'Bilbao', name: 'Aeropuerto de Bilbao', country: 'España' },
+  { iata: 'SCQ', city: 'Santiago de Compostela', name: 'Santiago-Rosalía de Castro', country: 'España' },
+  { iata: 'ZAZ', city: 'Zaragoza', name: 'Aeropuerto de Zaragoza', country: 'España' },
+  { iata: 'OVD', city: 'Asturias', name: 'Aeropuerto de Asturias', country: 'España' },
+  { iata: 'SDR', city: 'Santander', name: 'Seve Ballesteros-Santander', country: 'España' },
+  { iata: 'VGO', city: 'Vigo', name: 'Aeropuerto de Vigo-Peinador', country: 'España' },
+  { iata: 'LCG', city: 'A Coruña', name: 'Aeropuerto de A Coruña', country: 'España' },
+  { iata: 'GRX', city: 'Granada', name: 'Federico García Lorca Granada-Jaén', country: 'España' },
+  { iata: 'XRY', city: 'Jerez', name: 'Aeropuerto de Jerez', country: 'España' },
+  { iata: 'RMU', city: 'Murcia', name: 'Región de Murcia International', country: 'España' },
   { iata: 'FAO', city: 'Faro (Algarve)', name: 'Faro Airport', country: 'Portugal' },
   { iata: 'LIS', city: 'Lisboa', name: 'Humberto Delgado', country: 'Portugal' },
   { iata: 'OPO', city: 'Oporto', name: 'Francisco Sá Carneiro', country: 'Portugal' },
+  { iata: 'MIL', city: 'Milán', name: 'Malpensa / Bérgamo / Linate (Todos)', country: 'Italia' },
   { iata: 'BGY', city: 'Milán Bérgamo', name: 'Orio al Serio (Dolomitas)', country: 'Italia' },
+  { iata: 'MXP', city: 'Milán Malpensa', name: 'Milano Malpensa Airport', country: 'Italia' },
+  { iata: 'LIN', city: 'Milán Linate', name: 'Milano Linate Airport', country: 'Italia' },
+  { iata: 'VCE', city: 'Venecia', name: 'Marco Polo Airport', country: 'Italia' },
+  { iata: 'NAP', city: 'Nápoles', name: 'Napoli Capodichino', country: 'Italia' },
+  { iata: 'FLR', city: 'Florencia', name: 'Amerigo Vespucci', country: 'Italia' },
+  { iata: 'BLQ', city: 'Bolonia', name: 'Guglielmo Marconi', country: 'Italia' },
+  { iata: 'PSA', city: 'Pisa', name: 'Galileo Galilei', country: 'Italia' },
   { iata: 'TRN', city: 'Turín', name: 'Torino Caselle (Piamonte)', country: 'Italia' },
   { iata: 'GVA', city: 'Ginebra', name: 'Genève Aéroport (Alpes)', country: 'Suiza' },
   { iata: 'ZRH', city: 'Zúrich', name: 'Zürich Airport', country: 'Suiza' },
+  { iata: 'BSL', city: 'Basilea', name: 'EuroAirport Basel-Mulhouse-Freiburg', country: 'Suiza' },
   { iata: 'INN', city: 'Innsbruck', name: 'Innsbruck Tirol Airport', country: 'Austria' },
+  { iata: 'VIE', city: 'Viena', name: 'Vienna International Airport', country: 'Austria' },
+  { iata: 'BER', city: 'Berlín', name: 'Berlin Brandenburg Airport', country: 'Alemania' },
+  { iata: 'FRA', city: 'Fráncfort', name: 'Frankfurt Airport', country: 'Alemania' },
+  { iata: 'MUC', city: 'Múnich', name: 'Munich Airport', country: 'Alemania' },
+  { iata: 'BRU', city: 'Bruselas', name: 'Brussels Airport Zaventem', country: 'Bélgica' },
+  { iata: 'CRL', city: 'Bruselas Charleroi', name: 'Brussels South Charleroi', country: 'Bélgica' },
+  { iata: 'PRG', city: 'Praga', name: 'Václav Havel Airport Prague', country: 'Chequia' },
+  { iata: 'BUD', city: 'Budapest', name: 'Budapest Ferenc Liszt', country: 'Hungría' },
+  { iata: 'ATH', city: 'Atenas', name: 'Athens International Airport', country: 'Grecia' },
+  { iata: 'DUB', city: 'Dublín', name: 'Dublin Airport', country: 'Irlanda' },
+  { iata: 'EDI', city: 'Edimburgo', name: 'Edinburgh Airport', country: 'Reino Unido' },
+  { iata: 'CPH', city: 'Copenhague', name: 'Copenhagen Airport', country: 'Dinamarca' },
+  { iata: 'STO', city: 'Estocolmo', name: 'Arlanda / Skavsta (Todos)', country: 'Suecia' },
+  { iata: 'ARN', city: 'Estocolmo Arlanda', name: 'Stockholm Arlanda Airport', country: 'Suecia' },
+  { iata: 'OSL', city: 'Oslo', name: 'Oslo Airport Gardermoen', country: 'Noruega' },
+  { iata: 'WAW', city: 'Varsovia', name: 'Warsaw Chopin Airport', country: 'Polonia' },
+  { iata: 'KRK', city: 'Cracovia', name: 'John Paul II Kraków-Balice', country: 'Polonia' },
   { iata: 'DXB', city: 'Dubái', name: 'Dubai International', country: 'EAU' },
 ];
 
@@ -239,6 +292,24 @@ export const api = {
     }) =>
       request<FlightAlert>('/alerts', {
         method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    update: (
+      id: string,
+      payload: {
+        originIata: string;
+        destinationIata: string;
+        departureDay: number;
+        returnDay: number;
+        adults: number;
+        directOnly?: boolean;
+        maxPriceEur: number;
+        startDate: string;
+        endDate: string;
+      },
+    ) =>
+      request<FlightAlert>(`/alerts/${id}`, {
+        method: 'PATCH',
         body: JSON.stringify(payload),
       }),
     updateStatus: (id: string, status: AlertStatus) =>
