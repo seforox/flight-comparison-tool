@@ -59,6 +59,21 @@ export class AlertSchedulerService {
       return 0;
     }
 
+    let directOnly = Boolean((alert as any).directOnly);
+    if ((alert as any).directOnly === undefined && (this.prisma as any).$queryRawUnsafe) {
+      try {
+        const rows = await (this.prisma as any).$queryRawUnsafe(
+          `SELECT "directOnly" FROM "Alert" WHERE "id" = $1 LIMIT 1`,
+          alert.id,
+        );
+        if (rows?.[0] !== undefined) {
+          directOnly = Boolean(rows[0].directOnly);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const payload: FlightSearchJobPayload = {
       alertId: alert.id,
       userId: alert.userId,
@@ -66,6 +81,7 @@ export class AlertSchedulerService {
       originIata: alert.originIata,
       destinationIata: alert.destinationIata,
       adults: (alert as any).adults ?? 1,
+      directOnly,
       maxPriceEur: Number(alert.maxPriceEur),
       dateTuples: tuples.map(t => ({
         departureDate: t.departureDate.toISOString().split('T')[0],

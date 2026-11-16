@@ -13,6 +13,7 @@ export interface FlightSearchJobPayload {
   originIata: string;
   destinationIata: string;
   adults?: number;
+  directOnly?: boolean;
   maxPriceEur: number;
   dateTuples: FlightDateTuplePayload[];
 }
@@ -54,13 +55,18 @@ export class FlightSearchProcessorService {
         departureDate: tuple.departureDate,
         returnDate: tuple.returnDate,
         adults,
+        ...(jobData.directOnly !== undefined ? { directOnly: jobData.directOnly } : {}),
       });
 
       if (!results || results.length === 0) {
         continue;
       }
 
-      const validMatches = results.filter(f => f.foundPriceEur <= jobData.maxPriceEur);
+      const validMatches = results.filter(f => {
+        if (f.foundPriceEur > jobData.maxPriceEur) return false;
+        if (jobData.directOnly && f.isDirect === false) return false;
+        return true;
+      });
 
       if (validMatches.length > 0) {
         validMatches.sort((a, b) => a.foundPriceEur - b.foundPriceEur);

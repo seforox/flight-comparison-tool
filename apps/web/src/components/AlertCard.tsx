@@ -259,6 +259,10 @@ export function AlertCard({ alert, onRefresh }: AlertCardProps) {
                 {getDayLabel(alert.departureDay)} ➔{" "}
                 {getDayLabel(alert.returnDay)}
               </span>
+              <span className="px-3 py-1 rounded-full bg-slate-100 text-[#0b2545] border border-slate-200 text-xs font-semibold">
+                <span aria-hidden="true">{alert.directOnly ? "✈️ " : "🔄 "}</span>
+                {alert.directOnly ? "Solo directo" : "Con escalas"}
+              </span>
             </div>
 
             {/* Título grande: Madrid -> Londres */}

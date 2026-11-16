@@ -4,6 +4,7 @@ export interface FlightSearchQuery {
   departureDate: string;
   returnDate: string;
   adults?: number;
+  directOnly?: boolean;
 }
 
 export interface FlightSearchResult {

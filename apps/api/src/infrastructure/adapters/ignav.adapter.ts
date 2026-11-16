@@ -130,6 +130,6 @@ export class IgnavAdapter implements FlightSearchProvider {
           bookingUrl: `https://www.google.com/travel/flights?q=Flights%20to%20${query.destinationIata}%20from%20${query.originIata}%20on%20${query.departureDate}%20through%20${query.returnDate}%20for%20${adults}%20adults`,
         };
       })
-      .filter((f: any) => f !== null) as FlightSearchResult[];
+      .filter((f: any) => f !== null && (!query.directOnly || f.isDirect)) as FlightSearchResult[];
   }
 }

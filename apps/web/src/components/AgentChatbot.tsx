@@ -11,6 +11,8 @@ interface ChatMessage {
   recommendations?: DestinationRecommendation[];
   awaitingConfirmation?: boolean;
   alertCreated?: boolean;
+  needsDirectChoice?: boolean;
+  parsedDirectOnly?: boolean;
 }
 
 interface AgentChatbotProps {
@@ -90,6 +92,13 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
     try {
       const res = await api.agent.chat(trimmed, sessionId);
 
+      const asksForDirect =
+        !res.awaitingConfirmation &&
+        !res.alertCreated &&
+        res.activeSkill === "DEFINED_SEARCH" &&
+        (res.draftData?.directOnly === undefined ||
+          /vuelo directo o con escalas/i.test(res.reply));
+
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         role: "assistant",
@@ -98,6 +107,8 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         recommendations: res.recommendations,
         awaitingConfirmation: res.awaitingConfirmation,
         alertCreated: res.alertCreated,
+        needsDirectChoice: asksForDirect,
+        parsedDirectOnly: res.parsedData?.directOnly,
       };
 
       setMessages((prev) => [...prev, botMsg]);
@@ -344,23 +355,70 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                 </div>
               )}
 
+              {/* Selector interactivo cuando Vera pregunta si prefiere vuelo directo o con escalas */}
+              {msg.needsDirectChoice && (
+                <div className="mt-3 pt-2.5 border-t border-slate-200/80 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-[#0b2545]">
+                    Selecciona tu preferencia de escalas:
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => sendMessage("Solo vuelo directo")}
+                      className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 hover:border-[#0096c7] text-[#0b2545] font-semibold text-xs flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
+                    >
+                      <span aria-hidden="true">✈️</span>
+                      <span>Solo directo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendMessage("Con escalas")}
+                      className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 hover:border-[#0096c7] text-[#0b2545] font-semibold text-xs flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
+                    >
+                      <span aria-hidden="true">🔄</span>
+                      <span>Con escalas</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Botones de confirmación rápida */}
               {msg.awaitingConfirmation && (
-                <div className="mt-3 pt-3 border-t border-slate-200 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => sendMessage("Sí, lánzala")}
-                    className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-[#0e3968] to-[#00a8e8] hover:opacity-95 text-white font-semibold text-xs transition shadow-sm cursor-pointer"
-                  >
-                    ✓ Sí, activar alerta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => sendMessage("No, quiero modificar un dato")}
-                    className="py-2 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium transition cursor-pointer"
-                  >
-                    Modificar
-                  </button>
+                <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => sendMessage("Sí, lánzala")}
+                      className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-[#0e3968] to-[#00a8e8] hover:opacity-95 text-white font-semibold text-xs transition shadow-sm cursor-pointer"
+                    >
+                      ✓ Sí, activar alerta
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendMessage("No, quiero modificar un dato")}
+                      className="py-2 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium transition cursor-pointer"
+                    >
+                      Modificar
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                    <span>¿Cambiar escalas?</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        sendMessage(
+                          msg.parsedDirectOnly
+                            ? "Cámbialo a con escalas"
+                            : "Cámbialo a solo vuelo directo"
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-sky-50 border border-slate-200 text-[#0077b6] font-semibold transition cursor-pointer"
+                    >
+                      {msg.parsedDirectOnly
+                        ? "🔄 Cambiar a con escalas"
+                        : "✈️ Cambiar a solo directo"}
+                    </button>
+                  </div>
                 </div>
               )}
 

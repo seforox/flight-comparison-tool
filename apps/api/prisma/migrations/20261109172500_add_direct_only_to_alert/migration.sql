@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Alert" ADD COLUMN IF NOT EXISTS "directOnly" BOOLEAN NOT NULL DEFAULT false;

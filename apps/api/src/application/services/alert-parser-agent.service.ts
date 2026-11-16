@@ -21,6 +21,7 @@ export interface ParsedAlertDraft {
   departureDay?: number;
   returnDay?: number;
   adults?: number;
+  directOnly?: boolean;
   maxPriceEur?: number;
   startDate?: string;
   endDate?: string;
@@ -42,6 +43,7 @@ export interface AgentParseResult {
     departureDay: number;
     returnDay: number;
     adults: number;
+    directOnly: boolean;
     maxPriceEur: number;
     startDate: string;
     endDate: string;
@@ -354,20 +356,50 @@ export class AlertParserAgentService {
         let createdAlertId: string | undefined;
 
         if (this.prisma) {
-          const created = await this.prisma.alert.create({
-            data: {
-              userId,
-              originIata: fullData.originIata,
-              destinationIata: fullData.destinationIata,
-              departureDay: fullData.departureDay,
-              returnDay: fullData.returnDay,
-              adults: fullData.adults,
-              maxPriceEur: fullData.maxPriceEur,
-              startDate: new Date(fullData.startDate),
-              endDate: new Date(fullData.endDate),
-            } as any,
-          });
+          let created: any;
+          try {
+            created = await this.prisma.alert.create({
+              data: {
+                userId,
+                originIata: fullData.originIata,
+                destinationIata: fullData.destinationIata,
+                departureDay: fullData.departureDay,
+                returnDay: fullData.returnDay,
+                adults: fullData.adults,
+                directOnly: fullData.directOnly,
+                maxPriceEur: fullData.maxPriceEur,
+                startDate: new Date(fullData.startDate),
+                endDate: new Date(fullData.endDate),
+              } as any,
+            });
+          } catch {
+            created = await this.prisma.alert.create({
+              data: {
+                userId,
+                originIata: fullData.originIata,
+                destinationIata: fullData.destinationIata,
+                departureDay: fullData.departureDay,
+                returnDay: fullData.returnDay,
+                adults: fullData.adults,
+                maxPriceEur: fullData.maxPriceEur,
+                startDate: new Date(fullData.startDate),
+                endDate: new Date(fullData.endDate),
+              } as any,
+            });
+          }
           createdAlertId = created.id;
+
+          if ((this.prisma as any).$executeRawUnsafe) {
+            try {
+              await (this.prisma as any).$executeRawUnsafe(
+                `UPDATE "Alert" SET "directOnly" = $1 WHERE "id" = $2`,
+                fullData.directOnly,
+                created.id,
+              );
+            } catch {
+              // ignore
+            }
+          }
 
           if (this.alertScheduler) {
             await this.alertScheduler.enqueueAlert(created.id);
@@ -379,7 +411,8 @@ export class AlertParserAgentService {
 
         const depName = this.getDayLabel(fullData.departureDay);
         const retName = this.getDayLabel(fullData.returnDay);
-        const reply = `🚀 ¡Perfecto! He creado y encolado tu alerta de ${fullData.originIata} a ${fullData.destinationIata} (salida los ${depName} y regreso los ${retName}, máx. ${fullData.maxPriceEur} EUR para ${fullData.adults} pasajero(s)). En cuanto encontremos vuelos te avisaremos por Telegram.`;
+        const flightTypeLabel = fullData.directOnly ? 'solo vuelos directos' : 'con escalas permitidas';
+        const reply = `🚀 ¡Perfecto! He creado y encolado tu alerta de ${fullData.originIata} a ${fullData.destinationIata} (salida los ${depName} y regreso los ${retName}, ${flightTypeLabel}, máx. ${fullData.maxPriceEur} EUR para ${fullData.adults} pasajero(s)). En cuanto encontremos vuelos te avisaremos por Telegram.`;
         return {
           sessionId,
           activeSkill: 'DEFINED_SEARCH',
@@ -394,7 +427,7 @@ export class AlertParserAgentService {
 
       if (this.isNegative(prompt)) {
         state.awaitingConfirmation = false;
-        const reply = 'Entendido, no he lanzado la alerta todavía. Dime qué dato quieres modificar (destino, fechas, días de la semana, pasajeros o presupuesto).';
+        const reply = 'Entendido, no he lanzado la alerta todavía. Dime qué dato quieres modificar (destino, fechas, días de la semana, pasajeros, presupuesto o si prefieres vuelo directo o con escalas).';
         state.history.push({ role: 'assistant', text: reply });
         this.sessions.set(sessionId, state);
         return {
@@ -493,10 +526,14 @@ export class AlertParserAgentService {
       const fullData = this.toCompleteData(state.draft);
       const depName = this.getDayLabel(fullData.departureDay);
       const retName = this.getDayLabel(fullData.returnDay);
+      const flightTypeText = fullData.directOnly
+        ? 'Solo vuelos directos'
+        : 'Con escalas permitidas';
       const reply = [
         `✅ Ya tengo todos los datos para tu alerta:`,
         `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
         `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
+        `- **Tipo de vuelo:** ${flightTypeText}`,
         `- **Pasajeros:** ${fullData.adults}`,
         `- **Presupuesto máx.:** ${fullData.maxPriceEur} EUR`,
         `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
@@ -554,7 +591,8 @@ ${this.skillsContent.DESTINATION_RECOMMENDER}
 Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}
 IMPORTANTE:
 - En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
-- En "draft", "departureDay" y "returnDay" deben ser enteros del 1 (Lunes) al 7 (Domingo), y "startDate"/"endDate" cadenas "YYYY-MM-DD".
+- En "draft", "departureDay" y "returnDay" deben ser enteros del 1 (Lunes) al 7 (Domingo), "startDate"/"endDate" cadenas "YYYY-MM-DD", y "directOnly" booleano (true = solo vuelo directo / sin escalas, false = con escalas permitidas, o null si aún no lo ha indicado).
+- Si "directOnly" aún no está definido en el borrador ni en el mensaje actual, DEBES preguntarle explícitamente al usuario si prefiere **vuelo directo o con escalas**.
 Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 { "activeSkill": "DEFINED_SEARCH" | "DESTINATION_RECOMMENDER", "draft": {...}, "recommendations": [...] | null, "reply": "..." }`;
 
@@ -624,10 +662,14 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           const fullData = this.toCompleteData(state.draft);
           const depName = this.getDayLabel(fullData.departureDay);
           const retName = this.getDayLabel(fullData.returnDay);
+          const flightTypeText = fullData.directOnly
+            ? 'Solo vuelos directos'
+            : 'Con escalas permitidas';
           const confirmReply = [
             `✅ Ya tengo todos los datos para tu alerta:`,
             `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
             `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
+            `- **Tipo de vuelo:** ${flightTypeText}`,
             `- **Pasajeros:** ${fullData.adults}`,
             `- **Presupuesto máx.:** ${fullData.maxPriceEur} EUR`,
             `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
@@ -644,7 +686,14 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           };
         }
 
-        const sanitizedReply = this.replaceDayNumbersInText(parsed.reply || '');
+        let sanitizedReply = this.replaceDayNumbersInText(parsed.reply || '');
+        if (
+          state.activeSkill === 'DEFINED_SEARCH' &&
+          state.draft.directOnly === undefined &&
+          !/directo|escala/i.test(sanitizedReply)
+        ) {
+          sanitizedReply = `${sanitizedReply.trim()} ¿Prefieres vuelo directo o con escalas?`;
+        }
         return {
           sessionId,
           activeSkill: state.activeSkill,
@@ -772,6 +821,21 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       state.draft.adults = parseInt(paxMatch[1], 10);
     }
 
+    // 4.5. Preferencia de vuelo directo o con escalas
+    if (
+      /\b(con\s+escalas?|con\s+o\s+sin\s+escalas?|escalas?\s+permitidas?|me\s+da\s+igual|indiferente|cualquiera)\b/.test(
+        lower,
+      ) ||
+      /^escalas?\b/.test(lower.trim())
+    ) {
+      state.draft.directOnly = false;
+    } else if (
+      /\b(sin\s+escalas?|solo\s+directos?|vuelos?\s+directos?|directos?)\b/.test(lower) &&
+      !lower.includes('directo o con escalas')
+    ) {
+      state.draft.directOnly = true;
+    }
+
     // 5. Presupuesto máximo
     const priceMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*(?:euros|eur|€)/);
     if (priceMatch) {
@@ -856,6 +920,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         draft.destinationIata &&
         draft.departureDay &&
         draft.returnDay &&
+        draft.directOnly !== undefined &&
+        draft.directOnly !== null &&
         draft.maxPriceEur !== undefined &&
         draft.startDate &&
         draft.endDate,
@@ -883,6 +949,16 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (draft.adults !== undefined) {
       draft.adults = Math.max(1, Number(draft.adults) || 1);
     }
+    if (draft.directOnly !== undefined && draft.directOnly !== null) {
+      if (typeof draft.directOnly === 'boolean') {
+        // keep boolean
+      } else if (typeof draft.directOnly === 'string') {
+        const s = (draft.directOnly as string).trim().toLowerCase();
+        if (s === 'true' || s.includes('direct')) draft.directOnly = true;
+        else if (s === 'false' || s.includes('escala')) draft.directOnly = false;
+        else draft.directOnly = undefined;
+      }
+    }
     if (draft.maxPriceEur !== undefined) {
       draft.maxPriceEur = Number(draft.maxPriceEur);
     }
@@ -895,6 +971,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       departureDay: draft.departureDay!,
       returnDay: draft.returnDay!,
       adults: draft.adults ?? 1,
+      directOnly: Boolean(draft.directOnly),
       maxPriceEur: draft.maxPriceEur!,
       startDate: draft.startDate!,
       endDate: draft.endDate!,
@@ -913,6 +990,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     }
     if (!draft.startDate || !draft.endDate) missing.push('el rango de fechas o mes');
     if (draft.maxPriceEur === undefined) missing.push('tu presupuesto máximo en euros');
+    if (draft.directOnly === undefined) missing.push('si prefieres vuelo directo o con escalas');
     return missing.join(', ');
   }
 
@@ -923,6 +1001,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (!draft.departureDay || !draft.returnDay) missing.push('día de la semana de salida y de regreso');
     if (draft.maxPriceEur === undefined) missing.push('presupuesto máximo en euros');
     if (!draft.startDate || !draft.endDate) missing.push('fechas de inicio y fin (YYYY-MM-DD)');
+    if (draft.directOnly === undefined) missing.push('si prefieres vuelo directo o con escalas');
     return missing.join(', ');
   }
 

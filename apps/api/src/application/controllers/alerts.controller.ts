@@ -16,6 +16,7 @@ export class AlertsController {
   @Post()
   async create(@Request() req: any, @Body() createAlertDto: CreateAlertDto) {
     const userId = req.user.id; // Ya viene 100% seguro desde el JWT
+    const directOnly = Boolean(createAlertDto.directOnly);
 
     const alert = await this.prisma.alert.create({
       data: {
@@ -30,6 +31,15 @@ export class AlertsController {
         endDate: new Date(createAlertDto.endDate),
       } as any,
     });
+
+    if ((this.prisma as any).$executeRawUnsafe) {
+      await (this.prisma as any).$executeRawUnsafe(
+        `UPDATE "Alert" SET "directOnly" = $1 WHERE "id" = $2`,
+        directOnly,
+        alert.id,
+      );
+    }
+    (alert as any).directOnly = directOnly;
 
     await this.alertScheduler.enqueueAlert(alert.id);
     return alert;
@@ -50,11 +60,30 @@ export class AlertsController {
   @Get()
   async findAll(@Request() req: any) {
     const userId = req.user.id;
-    return this.prisma.alert.findMany({
+    const alerts = await this.prisma.alert.findMany({
       where: { userId },
       include: { matches: true },
       orderBy: { createdAt: 'desc' },
     });
+
+    if ((this.prisma as any).$queryRawUnsafe && alerts.length > 0) {
+      try {
+        const flags = await (this.prisma as any).$queryRawUnsafe(
+          `SELECT "id", "directOnly" FROM "Alert" WHERE "userId" = $1`,
+          userId,
+        );
+        const flagMap = new Map<string, boolean>(
+          (flags || []).map((r: any) => [r.id, Boolean(r.directOnly)]),
+        );
+        for (const a of alerts as any[]) {
+          a.directOnly = flagMap.get(a.id) ?? Boolean(a.directOnly);
+        }
+      } catch {
+        // ignore if column not yet queried
+      }
+    }
+
+    return alerts;
   }
 
   @Patch(':id/status')

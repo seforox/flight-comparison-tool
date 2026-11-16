@@ -16,6 +16,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
   const [startDate, setStartDate] = useState("2026-11-01");
   const [endDate, setEndDate] = useState("2026-11-30");
   const [adults, setAdults] = useState(1);
+  const [directOnly, setDirectOnly] = useState<boolean>(true);
   const [maxPriceEur, setMaxPriceEur] = useState<string>("100");
 
   const [loading, setLoading] = useState(false);
@@ -60,6 +61,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
         departureDay: Number(departureDay),
         returnDay: Number(returnDay),
         adults: Number(adults),
+        directOnly,
         maxPriceEur: parsedBudget,
         startDate: new Date(`${startDate}T00:00:00.000Z`).toISOString(),
         endDate: new Date(`${endDate}T23:59:59.999Z`).toISOString(),
@@ -214,9 +216,53 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
         </div>
       </div>
 
-      {/* Fila 3: Presupuesto objetivo + Atajos de rango + Botón principal */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-4 pt-1">
+      {/* Fila 3: Tipo de vuelo (Directo / Con escalas) + Presupuesto objetivo + Atajos de rango + Botón principal */}
+      <div className="flex flex-col lg:flex-row lg:flex-wrap items-stretch lg:items-center justify-between gap-4 pt-1">
         <div className="flex flex-wrap items-center justify-between sm:justify-start gap-3 sm:gap-4">
+          {/* Selector de Vuelo Directo vs Con Escalas */}
+          <div className="flex items-center gap-2">
+            <span
+              id="label-flight-type"
+              className="text-xs font-semibold text-[#0b2545]"
+            >
+              Escalas:
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby="label-flight-type"
+              className="inline-flex p-1 rounded-xl bg-[#f4f7fb] border border-slate-200"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={directOnly}
+                onClick={() => setDirectOnly(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                  directOnly
+                    ? "bg-[#0b2545] text-white shadow-2xs"
+                    : "text-slate-600 hover:text-[#0b2545]"
+                }`}
+              >
+                <span aria-hidden="true">✈️</span>
+                <span>Solo directo</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!directOnly}
+                onClick={() => setDirectOnly(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                  !directOnly
+                    ? "bg-[#0b2545] text-white shadow-2xs"
+                    : "text-slate-600 hover:text-[#0b2545]"
+                }`}
+              >
+                <span aria-hidden="true">🔄</span>
+                <span>Con escalas</span>
+              </button>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             <label
               htmlFor="field-max-price"
@@ -234,7 +280,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
                 value={maxPriceEur}
                 onChange={(e) => setMaxPriceEur(e.target.value)}
                 placeholder="100"
-                className="w-28 pl-3 pr-7 py-2 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
+                className="w-24 sm:w-28 pl-3 pr-7 py-2 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
               />
               <span
                 aria-hidden="true"
@@ -251,7 +297,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
             aria-label="Atajos rápidos de fechas"
             className="flex flex-wrap items-center gap-1.5 text-[11px]"
           >
-            <span className="text-slate-500 mr-1 hidden md:inline">
+            <span className="text-slate-500 mr-1 hidden xl:inline">
               Rango rápido:
             </span>
             <button
@@ -281,7 +327,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full sm:w-auto justify-center px-6 py-3 rounded-full bg-gradient-to-r from-[#0e3968] via-[#06689f] to-[#00b4d8] hover:from-[#0b2d52] hover:to-[#0096c7] text-white font-semibold text-sm shadow-lg shadow-cyan-500/25 flex items-center gap-2 transition disabled:opacity-50 cursor-pointer"
+          className="w-full lg:w-auto justify-center px-6 py-3 rounded-full bg-gradient-to-r from-[#0e3968] via-[#06689f] to-[#00b4d8] hover:from-[#0b2d52] hover:to-[#0096c7] text-white font-semibold text-sm shadow-lg shadow-cyan-500/25 flex items-center gap-2 transition disabled:opacity-50 cursor-pointer"
         >
           <svg
             aria-hidden="true"
@@ -323,7 +369,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium"
         >
           <span aria-hidden="true">✓ </span>
-          Alerta creada para todos los {depLabel} ➔ {retLabel} del rango
+          Alerta creada ({directOnly ? "solo vuelos directos" : "con escalas"}) para todos los {depLabel} ➔ {retLabel} del rango
           seleccionado.
         </div>
       )}

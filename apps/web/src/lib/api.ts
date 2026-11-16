@@ -28,6 +28,7 @@ export interface FlightAlert {
   departureDay: number;
   returnDay: number;
   adults: number;
+  directOnly?: boolean;
   maxPriceEur: string | number;
   startDate: string;
   endDate: string;
@@ -59,11 +60,23 @@ export interface AgentChatResponse {
     departureDay: number;
     returnDay: number;
     adults: number;
+    directOnly: boolean;
     maxPriceEur: number;
     startDate: string;
     endDate: string;
   };
-  draftData?: Record<string, unknown>;
+  draftData?: {
+    originIata?: string;
+    destinationIata?: string;
+    departureDay?: number;
+    returnDay?: number;
+    adults?: number;
+    directOnly?: boolean;
+    maxPriceEur?: number;
+    startDate?: string;
+    endDate?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface AirportItem {
@@ -216,6 +229,7 @@ export const api = {
       departureDay: number;
       returnDay: number;
       adults: number;
+      directOnly?: boolean;
       maxPriceEur: number;
       startDate: string;
       endDate: string;

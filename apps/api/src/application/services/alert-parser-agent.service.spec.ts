@@ -31,9 +31,9 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
   });
 
   describe('Skill 1: DEFINED_SEARCH (Búsqueda Definida)', () => {
-    it('should extract all fields and ask for confirmation when prompt is complete', async () => {
+    it('should extract all fields (including directOnly) and ask for confirmation when prompt is complete', async () => {
       const prompt =
-        'Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
 
       const result = await service.chat('user-1', prompt, 'session-defined-1');
 
@@ -46,6 +46,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
         departureDay: 1,
         returnDay: 3,
         adults: 2,
+        directOnly: true,
         maxPriceEur: 75,
         startDate: '2026-11-01',
         endDate: '2026-11-30',
@@ -54,11 +55,26 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(mockPrisma.alert.create).not.toHaveBeenCalled();
     });
 
+    it('should ask whether the user wants direct flight or with layovers if not specified', async () => {
+      const prompt =
+        'Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles para 2 personas por menos de 75 euros entre el 2026-11-01 y el 2026-11-30';
+
+      const turn1 = await service.chat('user-1', prompt, 'session-missing-direct');
+
+      expect(turn1.isComplete).toBe(false);
+      expect(turn1.reply).toContain('vuelo directo o con escalas');
+
+      const turn2 = await service.chat('user-1', 'Con escalas', 'session-missing-direct');
+      expect(turn2.isComplete).toBe(true);
+      expect(turn2.awaitingConfirmation).toBe(true);
+      expect(turn2.parsedData?.directOnly).toBe(false);
+    });
+
     it('should create alert in DB and enqueue it automatically when user confirms ("sí, lánzala")', async () => {
       const sessionId = 'session-confirm-flow';
       await service.chat(
         'user-1',
-        'Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 75 euros entre el 2026-11-01 y el 2026-11-30',
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 75 euros entre el 2026-11-01 y el 2026-11-30',
         sessionId,
       );
 
@@ -73,6 +89,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
           destinationIata: 'LON',
           departureDay: 1,
           returnDay: 3,
+          directOnly: true,
           maxPriceEur: 75,
         }),
       });
@@ -92,7 +109,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
 
     it('should deduce startDate and endDate from natural language month expressions ("en noviembre de este año")', async () => {
       const currentYear = new Date().getUTCFullYear();
-      const prompt = 'Vuelos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 85 euros en noviembre de este año';
+      const prompt = 'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 85 euros en noviembre de este año';
 
       const result = await service.chat('user-1', prompt, 'session-month-deduction');
 
@@ -136,7 +153,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       // Turno 2: Elige uno de los destinos recomendados y da el resto de datos
       const turn2 = await service.chat(
         'user-1',
-        'Me quedo con Ginebra (GVA) saliendo desde MAD de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
+        'Me quedo con Ginebra (GVA) en vuelo directo saliendo desde MAD de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
         sessionId,
       );
       expect(turn2.activeSkill).toBe('DEFINED_SEARCH');
@@ -144,6 +161,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(turn2.awaitingConfirmation).toBe(true);
       expect(turn2.parsedData?.destinationIata).toBe('GVA');
       expect(turn2.parsedData?.originIata).toBe('MAD');
+      expect(turn2.parsedData?.directOnly).toBe(true);
 
       // Turno 3: Confirma creación y encolado automático
       const turn3 = await service.chat('user-1', 'Sí, adelante', sessionId);
