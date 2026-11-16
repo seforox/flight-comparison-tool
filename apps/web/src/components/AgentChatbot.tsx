@@ -43,6 +43,7 @@ const SUGGESTED_PROMPTS = [
 
 export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [sessionId, setSessionId] = useState<string>(
     () => `vera-chat-${Date.now()}`
   );
@@ -209,7 +210,11 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
     <section
       role="dialog"
       aria-label="Chat con Vera, Agente IA de vuelos"
-      className="fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-5 sm:right-5 z-50 sm:w-[410px] h-[590px] max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-5rem)] flex flex-col bg-white border border-slate-200 rounded-3xl shadow-[0_24px_60px_rgba(11,37,69,0.28)] overflow-hidden"
+      className={`fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-5 sm:right-5 z-50 flex flex-col bg-white border border-slate-200 rounded-3xl shadow-[0_24px_60px_rgba(11,37,69,0.28)] overflow-hidden transition-all duration-200 ${
+        isExpanded
+          ? "sm:w-[660px] md:w-[760px] h-[85vh] sm:h-[760px] max-w-[calc(100vw-1.5rem)] sm:max-w-[calc(100vw-2.5rem)] max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-2.5rem)]"
+          : "sm:w-[410px] h-[590px] max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-5rem)]"
+      }`}
     >
       {/* Cabecera azul degradada con controles accesibles sin botones anidados */}
       <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#0e325c] via-[#0b4d83] to-[#0873b9] flex items-center justify-between gap-2">
@@ -248,6 +253,49 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
               Reiniciar
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setIsExpanded((prev) => !prev)}
+            aria-label={
+              isExpanded
+                ? "Reducir tamaño de la ventana del chat"
+                : "Ampliar tamaño de la ventana del chat"
+            }
+            title={isExpanded ? "Restaurar tamaño" : "Ampliar ventana"}
+            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
+          >
+            {isExpanded ? (
+              <svg
+                aria-hidden="true"
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.2}
+                  d="M9 9L4 4m0 0v4m0-4h4m7 5l5-5m0 0v4m0-4h-4M9 15l-5 5m0 0v-4m0 4h4m7-5l5 5m0 0v-4m0 4h-4"
+                />
+              </svg>
+            ) : (
+              <svg
+                aria-hidden="true"
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.2}
+                  d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                />
+              </svg>
+            )}
+          </button>
           <button
             type="button"
             onClick={() => setIsOpen(false)}
