@@ -863,55 +863,155 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Modal accesible para vincular Telegram Chat ID */}
+      {/* Modal accesible para vincular Telegram Chat ID con guía paso a paso */}
       {showTelegramModal && (
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="telegram-modal-title"
-          className="fixed inset-0 z-50 bg-[#0b2545]/50 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-[#0b2545]/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl">
-            <h3
-              id="telegram-modal-title"
-              className="text-base font-extrabold text-[#0b2545] flex items-center gap-2"
-            >
-              <span aria-hidden="true">📲</span> Configurar Avisos en Telegram
-            </h3>
-            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-              Recibe al instante las bajadas de precio con aerolínea, escalas,
-              hora de salida y enlace directo a la reserva:
-            </p>
-            <ol className="text-xs text-slate-700 mt-3 space-y-1.5 list-decimal list-inside bg-[#f4f7fb] p-3.5 rounded-2xl border border-slate-200/80">
-              <li>
-                Abre tu bot en Telegram y pulsa{" "}
-                <strong>Iniciar (/start)</strong>.
-              </li>
-              <li>
-                Introduce abajo tu <strong>Chat ID numérico</strong> (ej.{" "}
-                <code className="text-[#0077b6] font-semibold">1418929473</code>
-                ).
-              </li>
-            </ol>
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl my-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3
+                  id="telegram-modal-title"
+                  className="text-base sm:text-lg font-extrabold text-[#0b2545] flex items-center gap-2"
+                >
+                  <span aria-hidden="true">📲</span> Vincular alertas con Telegram
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Recibe al instante las bajadas de precio con aerolínea, escalas,
+                  hora de salida y enlace directo a la reserva.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Cerrar ventana de configuración de Telegram"
+                onClick={() => setShowTelegramModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold transition cursor-pointer shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Guía paso a paso sobre cómo obtener el Chat ID de Telegram */}
+            <div className="mt-4 bg-[#f4f7fb] p-4 rounded-2xl border border-slate-200/80 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#0b2545]">
+                  🧭 Guía paso a paso: ¿Cómo obtener tu ID de Telegram?
+                </h4>
+                <span className="px-2 py-0.5 rounded-full bg-sky-100 text-[#0077b6] font-bold text-[10px]">
+                  Tarda 30 seg
+                </span>
+              </div>
+
+              <ol className="space-y-2.5 text-xs text-slate-700">
+                <li className="flex items-start gap-2.5 bg-white p-2.5 rounded-xl border border-slate-200/70">
+                  <span
+                    aria-hidden="true"
+                    className="w-5 h-5 rounded-full bg-[#0e2a47] text-white font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5"
+                  >
+                    1
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-[#0b2545]">
+                      Averigua tu número de Chat ID con @userinfobot
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                      Abre Telegram, busca{" "}
+                      <a
+                        href="https://t.me/userinfobot"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-bold text-[#0077b6] underline hover:text-[#0b2545]"
+                      >
+                        @userinfobot ↗
+                      </a>{" "}
+                      y pulsa <strong>Iniciar</strong> (o envíale{" "}
+                      <code className="px-1.5 py-0.5 rounded bg-slate-100 text-[#0b2545] font-mono">
+                        /start
+                      </code>
+                      ).
+                    </p>
+                  </div>
+                </li>
+
+                <li className="flex items-start gap-2.5 bg-white p-2.5 rounded-xl border border-slate-200/70">
+                  <span
+                    aria-hidden="true"
+                    className="w-5 h-5 rounded-full bg-[#0e2a47] text-white font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5"
+                  >
+                    2
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-[#0b2545]">
+                      Copia el número que aparece junto a «Id:»
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                      El bot te responderá con tus datos. Copia únicamente el número de{" "}
+                      <strong>Id</strong> (es distinto de tu alias{" "}
+                      <code className="text-slate-500">@usuario</code>):
+                    </p>
+                    <div className="mt-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] flex items-center justify-between">
+                      <span>
+                        Id:{" "}
+                        <strong className="text-cyan-300">1418929473</strong>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-sans">
+                        ← Copia este número
+                      </span>
+                    </div>
+                  </div>
+                </li>
+
+                <li className="flex items-start gap-2.5 bg-white p-2.5 rounded-xl border border-slate-200/70">
+                  <span
+                    aria-hidden="true"
+                    className="w-5 h-5 rounded-full bg-[#0e2a47] text-white font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5"
+                  >
+                    3
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-[#0b2545]">
+                      Inicia el bot de alertas y pega tu ID abajo
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                      Asegúrate de haber pulsado{" "}
+                      <strong>Iniciar (/start)</strong> en el bot de alertas de{" "}
+                      <strong>V Flights</strong> para darle permiso de enviarte
+                      mensajes, pega tu ID numérico abajo y guarda.
+                    </p>
+                  </div>
+                </li>
+              </ol>
+            </div>
 
             <form onSubmit={handleSaveTelegram} className="mt-4 space-y-3">
               <div>
                 <label
                   htmlFor="telegram-chat-id-input"
-                  className="block text-xs font-semibold text-[#0b2545] mb-1"
+                  className="block text-xs font-bold text-[#0b2545] mb-1"
                 >
-                  Tu Telegram Chat ID
+                  Tu Telegram Chat ID (solo números)
                 </label>
                 <input
                   id="telegram-chat-id-input"
                   type="text"
+                  inputMode="numeric"
+                  pattern="^-?[0-9]+$"
                   required
                   autoFocus
                   value={telegramInput}
                   onChange={(e) => setTelegramInput(e.target.value)}
                   placeholder="Ej: 1418929473"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-semibold text-[#0b2545] placeholder-slate-400 placeholder:font-normal focus:outline-none focus:border-[#0096c7]"
                 />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  💡 Recuerda introducir el número de ID (ej.{" "}
+                  <code className="font-mono text-slate-700">1418929473</code>),
+                  no tu nombre de usuario con <code className="font-mono">@</code>.
+                </p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
