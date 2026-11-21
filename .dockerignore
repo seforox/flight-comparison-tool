@@ -1,0 +1,17 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+apps/web/.next
+apps/web/out
+apps/api/dist
+apps/api/coverage
+apps/api/.genkit
+**/.env
+**/.env.*
+!**/.env.example
+docs
+README.md
+SPEC.md
+AGENTS.md
+docker-compose.yml

@@ -15,8 +15,44 @@ import { AlertsController } from './application/controllers/alerts.controller';
 import { AgentController } from './application/controllers/agent.controller';
 import { AuthController } from './application/controllers/auth.controller';
 import { AirportsController } from './application/controllers/airports.controller';
+import { HealthController } from './application/controllers/health.controller';
 import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
 import { TokenBlacklistService } from './infrastructure/auth/token-blacklist.service';
+
+function buildRedisConnection() {
+  const redisUrl = process.env.REDIS_URL;
+
+  if (redisUrl) {
+    const parsed = new URL(redisUrl);
+    const dbPath = parsed.pathname?.replace('/', '');
+    const db = dbPath ? parseInt(dbPath, 10) : undefined;
+
+    return {
+      host: parsed.hostname,
+      port: parsed.port ? parseInt(parsed.port, 10) : 6379,
+      ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
+      ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
+      ...(db !== undefined && Number.isFinite(db) ? { db } : {}),
+      ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
+      // Dual-stack IPv4/IPv6: imprescindible para la red privada interna de Railway (*.railway.internal)
+      family: 0,
+      maxRetriesPerRequest: null,
+    };
+  }
+
+  const host = process.env.REDIS_HOST || 'localhost';
+  const isLocal = host === 'localhost' || host === '127.0.0.1';
+
+  return {
+    host,
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    ...(process.env.REDIS_USERNAME ? { username: process.env.REDIS_USERNAME } : {}),
+    ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
+    ...(process.env.REDIS_TLS === 'true' ? { tls: {} } : {}),
+    ...(!isLocal ? { family: 0 } : {}),
+    maxRetriesPerRequest: null,
+  };
+}
 
 @Module({
   imports: [
@@ -27,16 +63,13 @@ import { TokenBlacklistService } from './infrastructure/auth/token-blacklist.ser
       signOptions: { expiresIn: (process.env.JWT_EXPIRATION || '7d') as any },
     }),
     BullModule.forRoot({
-      connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      },
+      connection: buildRedisConnection(),
     }),
     BullModule.registerQueue({
       name: 'flight-search-queue',
     }),
   ],
-  controllers: [AlertsController, AgentController, AuthController, AirportsController],
+  controllers: [AlertsController, AgentController, AuthController, AirportsController, HealthController],
   providers: [
     PrismaService,
     TelegramAdapter,

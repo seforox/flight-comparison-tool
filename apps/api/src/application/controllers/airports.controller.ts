@@ -53,7 +53,9 @@ export class AirportsController implements OnModuleInit {
 
     const seedCandidates = [
       path.join(process.cwd(), 'prisma', 'airports-seed.json'),
+      path.join(process.cwd(), 'apps', 'api', 'prisma', 'airports-seed.json'),
       path.join(__dirname, '..', '..', '..', 'prisma', 'airports-seed.json'),
+      path.join(__dirname, '..', '..', '..', '..', 'prisma', 'airports-seed.json'),
     ];
     const seedPath = seedCandidates.find((p) => fs.existsSync(p));
     if (!seedPath) {
