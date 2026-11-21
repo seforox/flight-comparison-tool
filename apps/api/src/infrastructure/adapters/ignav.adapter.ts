@@ -13,11 +13,12 @@ export class IgnavAdapter implements FlightSearchProvider {
     const adults = query.adults ?? 1;
 
     if (useMock) {
-      this.logger.log(`[MOCK MODE] Buscando vuelos simulados en Ignav para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate}, ${adults} pax)`);
+      const prefix = process.env.USE_IGNAV_MOCK === 'true' ? '[TEST MODE] ' : '';
+      this.logger.log(`${prefix}Buscando vuelos simulados en el comparador de vuelos para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate}, ${adults} pax)`);
       return this.getMockedResponse(query);
     }
 
-    this.logger.log(`[REAL MODE] Ejecutando llamada real a Ignav API para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate}, ${adults} pax)`);
+    this.logger.log(`Ejecutando llamada al comparador de vuelos para ${query.originIata} -> ${query.destinationIata} (${query.departureDate} a ${query.returnDate}, ${adults} pax)`);
     return this.getRealResponse(query);
   }
 
@@ -54,7 +55,7 @@ export class IgnavAdapter implements FlightSearchProvider {
         this.logger.error('Límite de cuota de Ignav alcanzado (HTTP 429 Too Many Requests)');
         throw new Error('HTTP 429 Too Many Requests');
       }
-      this.logger.error(`Error en llamada real a Ignav API: ${error?.response?.data ? JSON.stringify(error.response.data) : error?.message}`);
+      this.logger.error(`Error en llamada al comparador de vuelos: ${error?.response?.data ? JSON.stringify(error.response.data) : error?.message}`);
       throw error;
     }
   }

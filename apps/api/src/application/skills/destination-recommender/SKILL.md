@@ -22,7 +22,9 @@ Activa esta skill cuando el usuario:
    - Si menciona ciudad de origen, número de pasajeros (`adults`), presupuesto (`maxPriceEur`) o si quiere vuelo directo (`directOnly: true`) o con escalas (`directOnly: false`), guárdalos también en `draft`.
    - **Regla de presupuesto para más de 1 pasajero (`adults > 1`):** Si hay más de 1 pasajero y el usuario ha indicado un presupuesto máximo (`maxPriceEur`), pero no ha aclarado si es **máximo por persona** (`budgetType: "PER_PERSON"`) o **máximo total** (`budgetType: "TOTAL"`), pregúntale explícitamente si ese presupuesto es **máximo por persona o máximo total** antes de realizar la búsqueda para aplicarlo correctamente (multiplicando por `adults` si es por persona, o dividiendo entre `adults` si es total).
 3. **Comprobar vuelos directos desde el origen antes de mostrar las 5 recomendaciones:**
-   - Una vez conocido `originIata`, antes de mostrar las respuestas al usuario, comprueba para cada una de las 5 opciones si dispone de **vuelos directos** o si requiere **escalas** saliendo desde `originIata`.
+   - Una vez conocido `originIata`, **NUNCA recomiendes un destino cuyo aeropuerto (`iataCode`) coincida con `originIata`**.
+   - Tampoco aceptes fechas de ida y vuelta en el mismo día (`startDate === endDate`, ej. `23/11/2026` y volver el `23/11/2026`); si el usuario las indica, no las guardes como válidas y avísale de que la vuelta debe ser un día posterior.
+   - Antes de mostrar las respuestas al usuario, comprueba para cada una de las 5 opciones si dispone de **vuelos directos** o si requiere **escalas** saliendo desde `originIata`.
    - Devuelve siempre una lista estructurada de **5 destinos** en el campo `recommendations` adaptados al país, época del año o temática pedida:
      - `city`: Nombre de la ciudad o región (ej. `"Roma"`, `"Milán - Bérgamo"`, `"Venecia"`).
      - `iataCode`: Código IATA de 3 letras del aeropuerto principal (ej. `"ROM"`, `"BGY"`, `"VCE"`).

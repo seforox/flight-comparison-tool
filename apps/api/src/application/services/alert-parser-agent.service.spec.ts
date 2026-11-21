@@ -53,6 +53,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
         endDate: '2026-11-30',
       });
       expect(result.reply).toContain('¿Deseas que lance y active esta alerta');
+      expect(result.reply).not.toContain('**');
       expect(mockPrisma.alert.create).not.toHaveBeenCalled();
     });
 
@@ -257,6 +258,155 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(turn2.draftData?.maxPriceEur).toBe(200);
       expect(turn2.draftData?.budgetType).toBe('PER_PERSON');
       expect(turn2.reply).toContain('200 EUR total / 100 EUR por persona');
+    });
+
+    it('should never recommend the same airport as the user originIata', async () => {
+      const sessionId = 'session-rec-no-same-origin';
+
+      const result = await service.chat(
+        'user-1',
+        'Recomiéndame sitios baratos con playa saliendo desde Palma',
+        sessionId,
+      );
+
+      expect(result.activeSkill).toBe('DESTINATION_RECOMMENDER');
+      expect(result.draftData?.originIata).toBe('PMI');
+      expect(result.recommendations).toHaveLength(5);
+      expect(result.recommendations?.some((r) => r.iataCode === 'PMI')).toBe(false);
+    });
+  });
+
+  describe('Validaciones de negocio (mismo origen/destino y mismo día)', () => {
+    it('should reject searches with the same origin and destination by IATA code (MAD -> MAD)', async () => {
+      const prompt =
+        'Vuelos directos de MAD a MAD saliendo el lunes y volviendo el miercoles por menos de 100 euros entre el 2026-11-01 y el 2026-11-30';
+
+      const result = await service.chat('user-1', prompt, 'session-same-iata');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/origen y.*destino.*no pueden ser el mismo/i);
+      expect(result.draftData?.destinationIata).toBeUndefined();
+      expect(mockPrisma.alert.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject searches with the same origin and destination by city name (Origen Madrid, Destino Madrid)', async () => {
+      const prompt =
+        'Vuelos directos de Madrid a Madrid saliendo el lunes y volviendo el miercoles por menos de 100 euros entre el 2026-11-01 y el 2026-11-30';
+
+      const result = await service.chat('user-1', prompt, 'session-same-city');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/origen y.*destino.*no pueden ser el mismo/i);
+      expect(result.draftData?.originIata).toBe('MAD');
+      expect(result.draftData?.destinationIata).toBeUndefined();
+    });
+
+    it('should reject when the user picks the same airport as origin in a follow-up turn', async () => {
+      const sessionId = 'session-same-airport-multiturn';
+
+      await service.chat('user-1', 'Quiero vuelos directos desde Madrid', sessionId);
+      const turn2 = await service.chat(
+        'user-1',
+        'Destino Madrid saliendo el lunes y volviendo el miercoles por 100 euros en noviembre de este año',
+        sessionId,
+      );
+
+      expect(turn2.isComplete).toBe(false);
+      expect(turn2.awaitingConfirmation).toBe(false);
+      expect(turn2.reply).toMatch(/origen y.*destino.*no pueden ser el mismo/i);
+      expect(turn2.draftData?.destinationIata).toBeUndefined();
+    });
+
+    it('should reject same-day departure and return using DD/MM/YYYY format (23/11/2026 y volver el 23/11/2026)', async () => {
+      const prompt =
+        'Vuelos directos de Madrid a Londres el 23/11/2026 y volver el 23/11/2026 saliendo el lunes y volviendo el lunes por menos de 100 euros';
+
+      const result = await service.chat('user-1', prompt, 'session-same-day-ddmmyyyy');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/mismo d[ií]a/i);
+      expect(result.draftData?.startDate).toBeUndefined();
+      expect(result.draftData?.endDate).toBeUndefined();
+      expect(mockPrisma.alert.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject same-day departure and return using ISO format (2026-11-23 al 2026-11-23)', async () => {
+      const prompt =
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el lunes por menos de 100 euros entre el 2026-11-23 y el 2026-11-23';
+
+      const result = await service.chat('user-1', prompt, 'session-same-day-iso');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/mismo d[ií]a/i);
+    });
+
+    it('should reject same-day departure and return using Spanish natural dates (23 de noviembre de 2026)', async () => {
+      const prompt =
+        'Vuelos directos de Madrid a Roma saliendo el 23 de noviembre de 2026 y volviendo el 23 de noviembre de 2026 por 90 euros';
+
+      const result = await service.chat('user-1', prompt, 'session-same-day-natural');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/mismo d[ií]a/i);
+      expect(result.draftData?.startDate).toBeUndefined();
+      expect(result.draftData?.endDate).toBeUndefined();
+    });
+
+    it('should reject both same airport AND same day together and allow recovery once corrected', async () => {
+      const sessionId = 'session-both-invalid-recover';
+
+      const turn1 = await service.chat(
+        'user-1',
+        'Vuelos directos de Madrid a Madrid el 23/11/2026 y volver el 23/11/2026 saliendo el lunes y volviendo el miercoles por menos de 100 euros',
+        sessionId,
+      );
+
+      expect(turn1.isComplete).toBe(false);
+      expect(turn1.awaitingConfirmation).toBe(false);
+      expect(turn1.reply).toMatch(/origen y.*destino.*no pueden ser el mismo/i);
+      expect(turn1.reply).toMatch(/mismo d[ií]a/i);
+
+      // Turno 2: el usuario corrige el destino y las fechas
+      const turn2 = await service.chat(
+        'user-1',
+        'Perdón, destino Londres del 23/11/2026 al 30/11/2026',
+        sessionId,
+      );
+
+      expect(turn2.isComplete).toBe(true);
+      expect(turn2.awaitingConfirmation).toBe(true);
+      expect(turn2.parsedData?.originIata).toBe('MAD');
+      expect(turn2.parsedData?.destinationIata).toBe('LON');
+      expect(turn2.parsedData?.startDate).toBe('2026-11-23');
+      expect(turn2.parsedData?.endDate).toBe('2026-11-30');
+    });
+
+    it('should reject when the date range does not contain any valid departure-return combination', async () => {
+      const prompt =
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el lunes del 23/11/2026 al 24/11/2026 por menos de 100 euros';
+
+      const result = await service.chat('user-1', prompt, 'session-no-valid-tuple');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/combinaci[oó]n v[aá]lida/i);
+    });
+
+    it('should reject "Origen Madrid, Destino Madrid" phrasing and natural "mismo día" phrasing', async () => {
+      const prompt =
+        'Origen Madrid, Destino Madrid, vuelo directo para ir y volver el mismo día por menos de 100 euros';
+
+      const result = await service.chat('user-1', prompt, 'session-natural-both-invalid');
+
+      expect(result.isComplete).toBe(false);
+      expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toMatch(/origen y.*destino.*no pueden ser el mismo/i);
+      expect(result.reply).toMatch(/mismo d[ií]a/i);
     });
   });
 });

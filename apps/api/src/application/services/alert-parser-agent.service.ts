@@ -5,6 +5,10 @@ import axios from 'axios';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { AlertSchedulerService } from './alert-scheduler.service';
 import { IgnavAdapter } from '../../infrastructure/adapters/ignav.adapter';
+import {
+  extractUtcDateKey,
+  validateAlertSearchRules,
+} from '../../domain/dtos/create-alert.dto';
 
 export type AgentSkill = 'DEFINED_SEARCH' | 'DESTINATION_RECOMMENDER';
 
@@ -323,6 +327,45 @@ const GENERAL_CHEAP_RECOMMENDATIONS: DestinationRecommendation[] = [
   },
 ];
 
+const FALLBACK_RECOMMENDATIONS_POOL: DestinationRecommendation[] = [
+  {
+    city: 'Ibiza',
+    iataCode: 'IBZ',
+    country: 'España',
+    estimatedPriceEur: 42,
+    reason: 'Calas turquesas, puestas de sol y conexiones frecuentes a buen precio.',
+  },
+  {
+    city: 'Gran Canaria',
+    iataCode: 'LPA',
+    country: 'España',
+    estimatedPriceEur: 58,
+    reason: 'Playas de arena dorada y clima primaveral durante todo el año.',
+  },
+  {
+    city: 'Praga',
+    iataCode: 'PRG',
+    country: 'Chequia',
+    estimatedPriceEur: 49,
+    reason: 'Centro histórico de cuento con vuelos económicos y precios locales muy contenidos.',
+  },
+  {
+    city: 'Atenas',
+    iataCode: 'ATH',
+    country: 'Grecia',
+    estimatedPriceEur: 62,
+    reason: 'Historia milenaria, gastronomía mediterránea y escapadas cercanas a la costa.',
+  },
+  {
+    city: 'Dublín',
+    iataCode: 'DUB',
+    country: 'Irlanda',
+    estimatedPriceEur: 44,
+    reason: 'Ambiente vibrante, cultura y gran frecuencia de vuelos low-cost.',
+  },
+  ...GENERAL_CHEAP_RECOMMENDATIONS,
+];
+
 @Injectable()
 export class AlertParserAgentService {
   private readonly logger = new Logger(AlertParserAgentService.name);
@@ -378,6 +421,24 @@ export class AlertParserAgentService {
     if (state.awaitingConfirmation && this.isDraftComplete(state.draft)) {
       if (this.isAffirmative(prompt)) {
         const fullData = this.toCompleteData(state.draft);
+        const validationErrors = validateAlertSearchRules(fullData);
+        if (validationErrors.length > 0) {
+          state.awaitingConfirmation = false;
+          this.sanitizeAndValidateDraft(state.draft, validationErrors);
+          const errorReply = `⚠️ ${validationErrors.join(' ')} Por favor, indícame los datos corregidos para continuar.`;
+          state.history.push({ role: 'assistant', text: errorReply });
+          this.sessions.set(sessionId, state);
+          return {
+            sessionId,
+            activeSkill: 'DEFINED_SEARCH',
+            reply: errorReply,
+            clarificationMessage: errorReply,
+            isComplete: false,
+            awaitingConfirmation: false,
+            draftData: state.draft,
+          };
+        }
+
         let createdAlertId: string | undefined;
 
         if (this.prisma) {
@@ -427,6 +488,7 @@ export class AlertParserAgentService {
           }
 
           if (this.alertScheduler) {
+            this.alertScheduler.markInitialSearchStarted?.(created.id);
             await this.alertScheduler.enqueueAlert(created.id);
           }
         }
@@ -468,6 +530,9 @@ export class AlertParserAgentService {
 
     // 2. Decidir si usar Mock o Gemini Real
     const useMock = process.env.USE_AGENT_MOCK !== 'false';
+    if (process.env.USE_AGENT_MOCK === 'true') {
+      this.logger.log(`[TEST MODE] Procesando consulta del agente con motor local (sesión: ${sessionId})`);
+    }
     const result = useMock
       ? await this.processWithSkillsEngine(prompt, state, sessionId)
       : await this.processWithGeminiLlm(prompt, state, sessionId);
@@ -504,13 +569,14 @@ export class AlertParserAgentService {
 
     if (wantsRecommendation || isCompletingPendingRecommendation) {
       state.activeSkill = 'DESTINATION_RECOMMENDER';
+      let recValidationErrors: string[] = [];
 
       if (wantsRecommendation) {
         state.pendingRecommendationPrompt = prompt;
-        this.extractEntitiesIntoDraft(prompt, state, true);
+        recValidationErrors = this.extractEntitiesIntoDraft(prompt, state, true);
       } else {
         this.extractOriginFromReply(prompt, state);
-        this.extractEntitiesIntoDraft(prompt, state, true);
+        recValidationErrors = this.extractEntitiesIntoDraft(prompt, state, true);
         if (!state.draft.originIata) {
           await this.resolveOriginFromDatabase(prompt, state);
         }
@@ -518,12 +584,15 @@ export class AlertParserAgentService {
           state.pendingRecommendationPrompt = `${state.pendingRecommendationPrompt} ${prompt}`;
         }
       }
+      recValidationErrors = this.sanitizeAndValidateDraft(state.draft, recValidationErrors);
 
       // Regla obligatoria: pedir la ciudad de origen (y aclarar presupuesto por persona vs total si hay >1 pasajero) antes de buscar
       if (!state.draft.originIata && this.needsBudgetTypeClarification(state.draft)) {
         state.recommendations = undefined;
         const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
-        const askBothReply = `Antes de realizar la búsqueda y recomendarte destinos, ¿desde qué ciudad o aeropuerto vas a salir? Además, al ser ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR es máximo por persona o máximo total?`;
+        const warningPrefix =
+          recValidationErrors.length > 0 ? `⚠️ ${recValidationErrors.join(' ')}\n\n` : '';
+        const askBothReply = `${warningPrefix}Antes de realizar la búsqueda y recomendarte destinos, ¿desde qué ciudad o aeropuerto vas a salir? Además, al ser ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR es máximo por persona o máximo total?`;
         return {
           sessionId,
           activeSkill: 'DESTINATION_RECOMMENDER',
@@ -537,8 +606,9 @@ export class AlertParserAgentService {
 
       if (!state.draft.originIata) {
         state.recommendations = undefined;
-        const askOriginReply =
-          'Antes de realizar la búsqueda y recomendarte destinos (comprobando si tienen vuelos directos o con escalas), ¿desde qué ciudad o aeropuerto vas a salir?';
+        const warningPrefix =
+          recValidationErrors.length > 0 ? `⚠️ ${recValidationErrors.join(' ')}\n\n` : '';
+        const askOriginReply = `${warningPrefix}Antes de realizar la búsqueda y recomendarte destinos (comprobando si tienen vuelos directos o con escalas), ¿desde qué ciudad o aeropuerto vas a salir?`;
         return {
           sessionId,
           activeSkill: 'DESTINATION_RECOMMENDER',
@@ -556,7 +626,9 @@ export class AlertParserAgentService {
           state.pendingRecommendationPrompt = prompt;
         }
         const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
-        const askBudgetTypeReply = `Antes de realizar la búsqueda para los ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR que has indicado es máximo por persona o máximo total?`;
+        const warningPrefix =
+          recValidationErrors.length > 0 ? `⚠️ ${recValidationErrors.join(' ')}\n\n` : '';
+        const askBudgetTypeReply = `${warningPrefix}Antes de realizar la búsqueda para los ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR que has indicado es máximo por persona o máximo total?`;
         return {
           sessionId,
           activeSkill: 'DESTINATION_RECOMMENDER',
@@ -594,11 +666,12 @@ export class AlertParserAgentService {
         themeName = 'baratos de montaña';
       }
 
-      // Antes de mostrar las respuestas al usuario, comprobar si tienen vuelos directos o no desde el origen
+      // Antes de mostrar las respuestas al usuario, excluir el aeropuerto de origen y comprobar vuelos directos
       const originIata = state.draft.originIata;
+      const filteredRecs = this.excludeOriginFromRecommendations(originIata, baseRecs);
       const verifiedRecs = await this.verifyDirectFlightsForRecommendations(
         originIata,
-        baseRecs,
+        filteredRecs,
         state.draft,
       );
       state.recommendations = verifiedRecs;
@@ -609,8 +682,11 @@ export class AlertParserAgentService {
         adultsCount > 1 && state.draft.maxPriceEur !== undefined
           ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
           : '';
+      const warningLine =
+        recValidationErrors.length > 0 ? [`⚠️ ${recValidationErrors.join(' ')}`, ''] : [];
 
       const reply = [
+        ...warningLine,
         `🌟 Aquí tienes 5 recomendaciones de destinos ${themeName} saliendo desde ${originIata}${budgetContext} (he comprobado cuáles disponen de vuelos directos desde tu origen).`,
         '',
         `¿Cuál de estos 5 destinos te gustaría elegir? Cuando elijas uno, dime también ${missingAfterRec}.`,
@@ -629,10 +705,30 @@ export class AlertParserAgentService {
 
     // Skill 1: DEFINED_SEARCH (o transición desde recomendador cuando elige un destino)
     state.activeSkill = 'DEFINED_SEARCH';
-    this.extractEntitiesIntoDraft(prompt, state);
+    let validationErrors = this.extractEntitiesIntoDraft(prompt, state);
+    validationErrors = this.sanitizeAndValidateDraft(state.draft, validationErrors);
+
     if (state.draft.destinationIata) {
       state.recommendations = undefined;
       state.pendingRecommendationPrompt = undefined;
+    }
+
+    if (validationErrors.length > 0) {
+      state.awaitingConfirmation = false;
+      const missing = this.getMissingFieldsDescription(state.draft);
+      const clarificationMessage = missing
+        ? `⚠️ ${validationErrors.join(' ')} Para configurar tu alerta todavía necesito que me indiques: ${missing}.`
+        : `⚠️ ${validationErrors.join(' ')} Por favor, corrige esos datos para continuar.`;
+
+      return {
+        sessionId,
+        activeSkill: 'DEFINED_SEARCH',
+        reply: clarificationMessage,
+        clarificationMessage,
+        isComplete: false,
+        awaitingConfirmation: false,
+        draftData: state.draft,
+      };
     }
 
     if (this.isDraftComplete(state.draft)) {
@@ -649,12 +745,12 @@ export class AlertParserAgentService {
           : `${fullData.maxPriceEur} EUR`;
       const reply = [
         `✅ Ya tengo todos los datos para tu alerta:`,
-        `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
-        `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
-        `- **Tipo de vuelo:** ${flightTypeText}`,
-        `- **Pasajeros:** ${fullData.adults}`,
-        `- **Presupuesto máx.:** ${budgetText}`,
-        `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
+        `- Ruta: ${fullData.originIata} ➔ ${fullData.destinationIata}`,
+        `- Días: Salida los ${depName} / Regreso los ${retName}`,
+        `- Tipo de vuelo: ${flightTypeText}`,
+        `- Pasajeros: ${fullData.adults}`,
+        `- Presupuesto máx.: ${budgetText}`,
+        `- Rango: ${fullData.startDate} al ${fullData.endDate}`,
         '',
         `¿Deseas que lance y active esta alerta ahora mismo? (Responde "Sí" para encolarla automáticamente).`,
       ].join('\n');
@@ -738,7 +834,9 @@ ${this.skillsContent.DESTINATION_RECOMMENDER}
 
 Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}${pendingContext}
 IMPORTANTE:
-- En DESTINATION_RECOMMENDER, si "originIata" NO está definido ni en el borrador ni en el mensaje actual del usuario, NO devuelvas recomendaciones ("recommendations": null) y pregúntale primero desde qué ciudad o aeropuerto va a salir.
+- En DESTINATION_RECOMMENDER, si "originIata" NO está definido ni en el borrador ni en el mensaje actual del usuario, NO devuelvas recomendaciones ("recommendations": null) y pregúntale primero desde qué ciudad o aeropuerto vas a salir.
+- NUNCA permitas que "originIata" y "destinationIata" sean el mismo aeropuerto (ej. Madrid a Madrid / MAD a MAD), ni recomiendes el mismo aeropuerto de origen. Si ocurre, deja "destinationIata": null y explica claramente que el origen y el destino no pueden ser el mismo aeropuerto.
+- NUNCA permitas búsquedas de ida y vuelta para el mismo día ("startDate" === "endDate", ej. 23/11/2026 y volver el 23/11/2026) ni "startDate" > "endDate". Si ocurre, deja "startDate": null y "endDate": null y explica claramente que no se permiten búsquedas en el mismo día.
 - Tanto en DESTINATION_RECOMMENDER como en DEFINED_SEARCH, si hay más de 1 pasajero ("adults" > 1) y se ha indicado un presupuesto máximo ("maxPriceEur"), pero no se ha aclarado si es por persona o total ("budgetType" no definido), DEBES preguntar explícitamente si ese presupuesto es **máximo por persona o máximo total** ("budgetType": "PER_PERSON" | "TOTAL" | null).
 - En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
 - En "draft", "departureDay" y "returnDay" deben ser enteros del 1 (Lunes) al 7 (Domingo), "startDate"/"endDate" cadenas "YYYY-MM-DD", y "directOnly" booleano (true = solo vuelo directo / sin escalas, false = con escalas permitidas, o null si aún no lo ha indicado).
@@ -800,7 +898,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 
         const prevRawPrice = state.draft.rawMaxPriceEur;
         // Combinar tanto la extracción determinista local (fechas de meses, duración, ciudades) como la de Gemini
-        this.extractEntitiesIntoDraft(
+        let validationErrors = this.extractEntitiesIntoDraft(
           prompt,
           state,
           state.activeSkill === 'DESTINATION_RECOMMENDER',
@@ -821,6 +919,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           }
           this.normalizeDraftFields(state.draft);
         }
+
+        validationErrors = this.sanitizeAndValidateDraft(state.draft, validationErrors);
 
         // Si ya eligió un destino o está en DEFINED_SEARCH, limpiar recomendaciones previas para no volver a mostrarlas
         if (state.activeSkill === 'DEFINED_SEARCH' || state.draft.destinationIata) {
@@ -917,9 +1017,13 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
               ? parsed.recommendations
               : fallbackRecs;
 
-          const verifiedRecs = await this.verifyDirectFlightsForRecommendations(
+          const filteredRecs = this.excludeOriginFromRecommendations(
             state.draft.originIata,
             candidateRecs,
+          );
+          const verifiedRecs = await this.verifyDirectFlightsForRecommendations(
+            state.draft.originIata,
+            filteredRecs,
             state.draft,
           );
           state.recommendations = verifiedRecs;
@@ -930,7 +1034,10 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             adultsCount > 1 && state.draft.maxPriceEur !== undefined
               ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
               : '';
+          const warningLine =
+            validationErrors.length > 0 ? [`⚠️ ${validationErrors.join(' ')}`, ''] : [];
           const recReply = [
+            ...warningLine,
             `🌟 Aquí tienes 5 recomendaciones de destinos saliendo desde ${state.draft.originIata}${budgetContext} (he comprobado cuáles disponen de vuelos directos desde tu origen).`,
             '',
             `¿Cuál de estos 5 destinos te gustaría elegir? Cuando elijas uno, dime también ${missingAfterRec}.`,
@@ -944,6 +1051,23 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             isComplete: false,
             awaitingConfirmation: false,
             recommendations: verifiedRecs,
+            draftData: state.draft,
+          };
+        }
+
+        if (validationErrors.length > 0) {
+          state.awaitingConfirmation = false;
+          const missing = this.getMissingFieldsDescription(state.draft);
+          const validationReply = missing
+            ? `⚠️ ${validationErrors.join(' ')} Para configurar tu alerta todavía necesito que me indiques: ${missing}.`
+            : `⚠️ ${validationErrors.join(' ')} Por favor, corrige esos datos para continuar.`;
+          return {
+            sessionId,
+            activeSkill: 'DEFINED_SEARCH',
+            reply: validationReply,
+            clarificationMessage: validationReply,
+            isComplete: false,
+            awaitingConfirmation: false,
             draftData: state.draft,
           };
         }
@@ -962,12 +1086,12 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
               : `${fullData.maxPriceEur} EUR`;
           const confirmReply = [
             `✅ Ya tengo todos los datos para tu alerta:`,
-            `- **Ruta:** ${fullData.originIata} ➔ ${fullData.destinationIata}`,
-            `- **Días:** Salida los ${depName} / Regreso los ${retName}`,
-            `- **Tipo de vuelo:** ${flightTypeText}`,
-            `- **Pasajeros:** ${fullData.adults}`,
-            `- **Presupuesto máx.:** ${budgetText}`,
-            `- **Rango:** ${fullData.startDate} al ${fullData.endDate}`,
+            `- Ruta: ${fullData.originIata} ➔ ${fullData.destinationIata}`,
+            `- Días: Salida los ${depName} / Regreso los ${retName}`,
+            `- Tipo de vuelo: ${flightTypeText}`,
+            `- Pasajeros: ${fullData.adults}`,
+            `- Presupuesto máx.: ${budgetText}`,
+            `- Rango: ${fullData.startDate} al ${fullData.endDate}`,
             '',
             `¿Deseas que lance y active esta alerta ahora mismo?`,
           ].join('\n');
@@ -1238,24 +1362,172 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     );
   }
 
-  private extractEntitiesIntoDraft(prompt: string, state: SessionState, ignoreDestination = false): void {
+  private excludeOriginFromRecommendations(
+    originIata: string,
+    recommendations: DestinationRecommendation[],
+  ): DestinationRecommendation[] {
+    const origin = (originIata || '').trim().toUpperCase();
+    const seen = new Set<string>();
+    const filtered: DestinationRecommendation[] = [];
+
+    for (const rec of recommendations) {
+      const code = (rec.iataCode || '').trim().toUpperCase();
+      if (!code || code === origin || seen.has(code)) continue;
+      seen.add(code);
+      filtered.push({ ...rec, iataCode: code });
+      if (filtered.length === 5) break;
+    }
+
+    if (filtered.length < 5) {
+      for (const extra of FALLBACK_RECOMMENDATIONS_POOL) {
+        const code = extra.iataCode.toUpperCase();
+        if (code === origin || seen.has(code)) continue;
+        seen.add(code);
+        filtered.push({ ...extra, iataCode: code });
+        if (filtered.length === 5) break;
+      }
+    }
+
+    return filtered;
+  }
+
+  private extractExplicitDates(prompt: string): string[] {
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth() + 1;
+
+    const toValidIso = (year: number, month: number, day: number): string | null => {
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      const d = new Date(Date.UTC(year, month - 1, day));
+      if (
+        d.getUTCFullYear() !== year ||
+        d.getUTCMonth() + 1 !== month ||
+        d.getUTCDate() !== day
+      ) {
+        return null;
+      }
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    };
+
+    const matches: { index: number; iso: string }[] = [];
+    const monthAlternation = Object.keys(MONTH_NAMES).join('|');
+    const combinedRegex = new RegExp(
+      `\\b(\\d{4})-(\\d{2})-(\\d{2})\\b|\\b(\\d{1,2})[\\/-](\\d{1,2})[\\/-](20\\d{2})\\b|\\b(\\d{1,2})\\s+de\\s+(${monthAlternation})(?:\\s+(?:de|del)\\s+(20\\d{2}))?\\b`,
+      'gi',
+    );
+
+    let m: RegExpExecArray | null;
+    while ((m = combinedRegex.exec(prompt)) !== null) {
+      let iso: string | null = null;
+      if (m[1] && m[2] && m[3]) {
+        // YYYY-MM-DD
+        iso = toValidIso(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10));
+      } else if (m[4] && m[5] && m[6]) {
+        // DD/MM/YYYY o DD-MM-YYYY
+        iso = toValidIso(parseInt(m[6], 10), parseInt(m[5], 10), parseInt(m[4], 10));
+      } else if (m[7] && m[8]) {
+        // DD de <mes> [de YYYY]
+        const day = parseInt(m[7], 10);
+        const monthNum = MONTH_NAMES[m[8].toLowerCase()];
+        let year = m[9] ? parseInt(m[9], 10) : currentYear;
+        if (!m[9] && monthNum < currentMonth) {
+          year = currentYear + 1;
+        }
+        iso = toValidIso(year, monthNum, day);
+      }
+
+      if (iso) {
+        matches.push({ index: m.index, iso });
+      }
+    }
+
+    matches.sort((a, b) => a.index - b.index);
+    return matches.map((entry) => entry.iso);
+  }
+
+  private sanitizeAndValidateDraft(draft: ParsedAlertDraft, existingErrors: string[] = []): string[] {
+    const errors: string[] = [...existingErrors];
+    const addUniqueError = (msg: string) => {
+      if (!errors.includes(msg)) {
+        errors.push(msg);
+      }
+    };
+
+    if (draft.originIata) {
+      draft.originIata = draft.originIata.trim().toUpperCase();
+    }
+    if (draft.destinationIata) {
+      draft.destinationIata = draft.destinationIata.trim().toUpperCase();
+    }
+
+    if (draft.originIata && draft.destinationIata && draft.originIata === draft.destinationIata) {
+      draft.destinationIata = undefined;
+      addUniqueError('El aeropuerto de origen y el de destino no pueden ser el mismo.');
+    }
+
+    if (draft.startDate && draft.endDate) {
+      const startKey = extractUtcDateKey(draft.startDate);
+      const endKey = extractUtcDateKey(draft.endDate);
+
+      if (!startKey || !endKey) {
+        draft.startDate = undefined;
+        draft.endDate = undefined;
+        addUniqueError('Las fechas de inicio y fin deben ser válidas.');
+      } else {
+        draft.startDate = startKey;
+        draft.endDate = endKey;
+        const dateErrors = validateAlertSearchRules({
+          departureDay: draft.departureDay,
+          returnDay: draft.returnDay,
+          startDate: startKey,
+          endDate: endKey,
+        });
+        if (dateErrors.length > 0) {
+          draft.startDate = undefined;
+          draft.endDate = undefined;
+          for (const err of dateErrors) {
+            addUniqueError(err);
+          }
+        }
+      }
+    }
+
+    return errors;
+  }
+
+  private extractEntitiesIntoDraft(prompt: string, state: SessionState, ignoreDestination = false): string[] {
     const lower = prompt.toLowerCase();
+    const validationErrors: string[] = [];
+    const addError = (msg: string) => {
+      if (!validationErrors.includes(msg)) {
+        validationErrors.push(msg);
+      }
+    };
+
+    let candidateOrigin: string | undefined;
+    let candidateDestination: string | undefined;
 
     // 1. Extraer códigos IATA explícitos en mayúsculas (ej. "de MAD a LON" o "(GVA)")
     const fromToIata = prompt.match(/(?:de|desde)\s+([A-Z]{3})\s+(?:a|hacia)\s+([A-Z]{3})/);
     if (fromToIata) {
-      state.draft.originIata = fromToIata[1];
+      candidateOrigin = fromToIata[1].toUpperCase();
       if (!ignoreDestination) {
-        state.draft.destinationIata = fromToIata[2];
+        candidateDestination = fromToIata[2].toUpperCase();
       }
     } else {
-      const originMatch = prompt.match(/(?:desde|saliendo de|salgo de|origen(?:\s+en)?)\s+([A-Z]{3})/);
+      const originMatch = prompt.match(/(?:desde|saliendo de|salgo de|origen(?:\s+en|\s*:)?)\s+([A-Z]{3})\b/);
       if (originMatch) {
-        state.draft.originIata = originMatch[1];
+        candidateOrigin = originMatch[1].toUpperCase();
       }
-      const parenIata = prompt.match(/\(([A-Z]{3})\)/);
-      if (parenIata && !ignoreDestination) {
-        state.draft.destinationIata = parenIata[1];
+      if (!ignoreDestination) {
+        const destMatch = prompt.match(/(?:destino(?:\s+en|\s*:)?|hacia|volar a|ir a)\s+([A-Z]{3})\b/);
+        if (destMatch) {
+          candidateDestination = destMatch[1].toUpperCase();
+        }
+        const parenIata = prompt.match(/\(([A-Z]{3})\)/);
+        if (parenIata && !candidateDestination) {
+          candidateDestination = parenIata[1].toUpperCase();
+        }
       }
     }
 
@@ -1267,54 +1539,71 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           (mainCityName.length >= 3 && lower.includes(mainCityName)) ||
           prompt.toUpperCase().includes(rec.iataCode)
         ) {
-          state.draft.destinationIata = rec.iataCode;
+          candidateDestination = rec.iataCode.toUpperCase();
           break;
         }
       }
     }
 
-    // 2. Extraer por nombres de ciudades del catálogo general
+    // 2. Extraer por nombres de ciudades del catálogo general (comprobando origen y destino de forma independiente)
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const boundaryEnd = '(?=$|[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ])';
+    const boundaryStart = '(?:^|[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ])';
+
     for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
-      if (
-        lower.includes(`desde ${city}`) ||
-        lower.includes(`saliendo de ${city}`) ||
-        lower.includes(`saliendo desde ${city}`) ||
-        lower.includes(`salgo de ${city}`) ||
-        lower.includes(`salgo desde ${city}`) ||
-        lower.includes(`soy de ${city}`) ||
-        lower.includes(`vivo en ${city}`) ||
-        lower.includes(`origen ${city}`) ||
-        lower.includes(`origen en ${city}`) ||
-        lower.includes(`volando desde ${city}`) ||
-        lower.includes(`vuelo desde ${city}`) ||
-        lower.includes(`de ${city} a `) ||
-        lower.includes(`de ${city} hacia `)
-      ) {
-        state.draft.originIata = iata;
-      } else if (
-        !ignoreDestination &&
-        (lower.includes(`a ${city}`) ||
-          lower.includes(`hacia ${city}`) ||
-          lower.includes(`con ${city}`) ||
-          lower.includes(`elijo ${city}`))
-      ) {
-        if (state.draft.originIata !== iata) {
-          state.draft.destinationIata = iata;
-        }
-      } else if (!ignoreDestination && lower.includes(city)) {
-        if (!state.draft.originIata) {
-          state.draft.originIata = iata;
-        } else if (state.draft.originIata !== iata && !state.draft.destinationIata) {
-          state.draft.destinationIata = iata;
+      const escapedCity = escapeRegex(city);
+      const originCityRegex = new RegExp(
+        `${boundaryStart}(?:desde|saliendo\\s+de|saliendo\\s+desde|salgo\\s+de|salgo\\s+desde|soy\\s+de|vivo\\s+en|origen(?:\\s+en|\\s*:)?|volando\\s+desde|vuelo\\s+desde)\\s+${escapedCity}${boundaryEnd}|${boundaryStart}de\\s+${escapedCity}\\s+(?:a|hacia)${boundaryEnd}`,
+        'i',
+      );
+      const destCityRegex = new RegExp(
+        `${boundaryStart}(?:a|hacia|destino(?:\\s+en|\\s*:)?|con|elijo|volar\\s+a|ir\\s+a)\\s+${escapedCity}${boundaryEnd}`,
+        'i',
+      );
+
+      const matchedAsOrigin = originCityRegex.test(lower);
+      const matchedAsDest = !ignoreDestination && destCityRegex.test(lower);
+
+      if (matchedAsOrigin) {
+        candidateOrigin = iata;
+      }
+      if (matchedAsDest) {
+        candidateDestination = iata;
+      }
+      if (!matchedAsOrigin && !matchedAsDest && !ignoreDestination) {
+        const bareCityRegex = new RegExp(`${boundaryStart}${escapedCity}${boundaryEnd}`, 'i');
+        if (bareCityRegex.test(lower)) {
+          const effectiveOrigin = candidateOrigin || state.draft.originIata;
+          if (!effectiveOrigin) {
+            candidateOrigin = iata;
+          } else if (effectiveOrigin !== iata && !candidateDestination && !state.draft.destinationIata) {
+            candidateDestination = iata;
+          }
         }
       }
+    }
+
+    if (candidateOrigin) {
+      state.draft.originIata = candidateOrigin;
+    }
+    if (candidateDestination && !ignoreDestination) {
+      state.draft.destinationIata = candidateDestination;
+    }
+
+    if (
+      state.draft.originIata &&
+      state.draft.destinationIata &&
+      state.draft.originIata.toUpperCase() === state.draft.destinationIata.toUpperCase()
+    ) {
+      state.draft.destinationIata = undefined;
+      addError('El aeropuerto de origen y el de destino no pueden ser el mismo.');
     }
 
     // 3. Días de la semana explícitos o deducidos por duración ("finde", "3 días", "4 días")
     const foundDays: number[] = [];
     const words = lower.replace(/[.,]/g, '').split(/\s+/);
     for (const word of words) {
-      if (DAY_NAMES[word] && !foundDays.includes(DAY_NAMES[word])) {
+      if (DAY_NAMES[word]) {
         foundDays.push(DAY_NAMES[word]);
       }
     }
@@ -1388,18 +1677,44 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 
     this.recalculateMaxPriceEur(state.draft);
 
-    // 6. Fechas YYYY-MM-DD explícitas o deducción por mes/expresión temporal
-    const dateMatches = prompt.match(/\d{4}-\d{2}-\d{2}/g);
-    if (dateMatches && dateMatches.length >= 2) {
-      state.draft.startDate = dateMatches[0];
-      state.draft.endDate = dateMatches[1];
-    } else {
+    // 6. Fechas explícitas (YYYY-MM-DD, DD/MM/YYYY, "23 de noviembre de 2026") o deducción por mes/expresión temporal
+    const explicitDates = this.extractExplicitDates(prompt);
+    const mentionsSameDay =
+      /\b(?:el\s+mismo\s+d[ií]a|en\s+el\s+mismo\s+d[ií]a|para\s+el\s+mismo\s+d[ií]a|ida\s+y\s+vuelta\s+en\s+el\s+d[ií]a|volver\s+el\s+mismo\s+d[ií]a)\b/i.test(
+        lower,
+      );
+
+    if (explicitDates.length >= 2) {
+      const [firstDate, secondDate] = explicitDates;
+      if (firstDate === secondDate) {
+        state.draft.startDate = undefined;
+        state.draft.endDate = undefined;
+        addError(
+          'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
+        );
+      } else if (firstDate > secondDate) {
+        state.draft.startDate = undefined;
+        state.draft.endDate = undefined;
+        addError('La fecha de inicio no puede ser posterior a la fecha de fin.');
+      } else {
+        state.draft.startDate = firstDate;
+        state.draft.endDate = secondDate;
+      }
+    } else if (mentionsSameDay) {
+      state.draft.startDate = undefined;
+      state.draft.endDate = undefined;
+      addError(
+        'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
+      );
+    } else if (explicitDates.length === 0) {
       const deduced = this.deduceMonthRange(lower);
       if (deduced) {
         state.draft.startDate = deduced.startDate;
         state.draft.endDate = deduced.endDate;
       }
     }
+
+    return validationErrors;
   }
 
   private deduceMonthRange(lowerPrompt: string): { startDate: string; endDate: string } | null {
@@ -1492,7 +1807,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         draft.maxPriceEur !== undefined &&
         !this.needsBudgetTypeClarification(draft) &&
         draft.startDate &&
-        draft.endDate,
+        draft.endDate &&
+        validateAlertSearchRules(draft).length === 0,
     );
   }
 

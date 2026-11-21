@@ -1,7 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import { FlightSearchProcessorService, FlightSearchJobPayload } from '../../application/services/flight-search-processor.service';
+import { AlertSchedulerService } from '../../application/services/alert-scheduler.service';
 
 @Processor('flight-search-queue', {
   concurrency: 1, // BullMQ limitará los workers concurrentes
@@ -13,7 +14,10 @@ import { FlightSearchProcessorService, FlightSearchJobPayload } from '../../appl
 export class FlightSearchWorker extends WorkerHost {
   private readonly logger = new Logger(FlightSearchWorker.name);
 
-  constructor(private readonly processorService: FlightSearchProcessorService) {
+  constructor(
+    private readonly processorService: FlightSearchProcessorService,
+    @Optional() private readonly alertScheduler?: AlertSchedulerService,
+  ) {
     super();
   }
 
@@ -25,6 +29,8 @@ export class FlightSearchWorker extends WorkerHost {
     } catch (error) {
       this.logger.error(`Error procesando alerta ${job.data.alertId}: ${error}`);
       throw error;
+    } finally {
+      await this.alertScheduler?.markSearchCompleted(job.data.alertId);
     }
   }
 }

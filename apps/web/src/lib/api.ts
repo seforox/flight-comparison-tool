@@ -33,6 +33,10 @@ export interface FlightAlert {
   adults: number;
   directOnly?: boolean;
   pendingCompletionPrompt?: boolean;
+  isInitialSearching?: boolean;
+  lastCheckedAt?: string | null;
+  nextSearchScheduleLabel?: string;
+  nextSearchAt?: string | null;
   maxPriceEur: string | number;
   startDate: string;
   endDate: string;
@@ -202,6 +206,83 @@ export const WEEKDAYS = [
   { value: 6, label: 'Sábado', short: 'Sáb' },
   { value: 7, label: 'Domingo', short: 'Dom' },
 ];
+
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return '';
+  const d = new Date(`${isoDate}T00:00:00.000Z`);
+  if (isNaN(d.getTime())) return '';
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function hasValidAlertDateTuple(
+  startDate: string,
+  endDate: string,
+  departureDay: number,
+  returnDay: number,
+): boolean {
+  const current = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T23:59:59.999Z`);
+  if (isNaN(current.getTime()) || isNaN(end.getTime())) return false;
+
+  while (current <= end) {
+    const jsDay = current.getUTCDay();
+    const isoDay = jsDay === 0 ? 7 : jsDay;
+
+    if (isoDay === departureDay) {
+      const returnDate = new Date(current);
+      let daysToAdd = returnDay - departureDay;
+      if (daysToAdd <= 0) {
+        daysToAdd += 7;
+      }
+      returnDate.setUTCDate(returnDate.getUTCDate() + daysToAdd);
+
+      if (returnDate <= end) {
+        return true;
+      }
+    }
+
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return false;
+}
+
+export function validateAlertSearchParams(params: {
+  originIata: string;
+  destinationIata: string;
+  departureDay: number;
+  returnDay: number;
+  startDate: string;
+  endDate: string;
+}): string | null {
+  const origin = params.originIata.trim().toUpperCase();
+  const dest = params.destinationIata.trim().toUpperCase();
+  if (origin && dest && origin === dest) {
+    return 'El aeropuerto de origen y el de destino no pueden ser el mismo.';
+  }
+
+  if (params.startDate > params.endDate) {
+    return 'La fecha de inicio no puede ser posterior a la fecha de fin.';
+  }
+
+  if (params.startDate === params.endDate) {
+    return 'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).';
+  }
+
+  if (
+    !hasValidAlertDateTuple(
+      params.startDate,
+      params.endDate,
+      params.departureDay,
+      params.returnDay,
+    )
+  ) {
+    return 'No hay ninguna combinación válida de ida y vuelta para los días seleccionados dentro de ese rango de fechas (la vuelta debe ser un día posterior dentro del rango).';
+  }
+
+  return null;
+}
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
