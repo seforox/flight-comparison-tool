@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -18,6 +19,7 @@ import { AirportsController } from './application/controllers/airports.controlle
 import { HealthController } from './application/controllers/health.controller';
 import { JwtStrategy } from './infrastructure/auth/jwt.strategy';
 import { TokenBlacklistService } from './infrastructure/auth/token-blacklist.service';
+import { ApiGatewayGuard } from './infrastructure/auth/api-gateway.guard';
 
 function buildRedisConnection() {
   const redisUrl = process.env.REDIS_URL;
@@ -87,6 +89,10 @@ function buildRedisConnection() {
     AlertSchedulerService,
     TokenBlacklistService,
     JwtStrategy,
+    {
+      provide: APP_GUARD,
+      useClass: ApiGatewayGuard,
+    },
   ],
 })
 export class AppModule {}
