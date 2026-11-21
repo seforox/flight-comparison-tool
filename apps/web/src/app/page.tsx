@@ -48,7 +48,7 @@ export default function DashboardPage() {
     });
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (selectLatest = false) => {
     try {
       const [profileData, alertsData] = await Promise.all([
         api.auth.getProfile(),
@@ -65,6 +65,7 @@ export default function DashboardPage() {
         }
       }
       setSelectedAlertId((prev) => {
+        if (selectLatest) return alertsData[0]?.id || null;
         if (prev && alertsData.some((a) => a.id === prev)) return prev;
         return alertsData[0]?.id || null;
       });
@@ -74,6 +75,32 @@ export default function DashboardPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleAlertCreated = useCallback(() => {
+    loadData(true);
+  }, [loadData]);
+
+  const hasInitialSearchingAlerts = alerts.some((a) =>
+    Boolean(a.isInitialSearching)
+  );
+
+  useEffect(() => {
+    if (!hasInitialSearchingAlerts) return;
+    const fastInterval = setInterval(() => {
+      if (!localStorage.getItem("flight_jwt_token")) return;
+      api.alerts
+        .list()
+        .then((data) => {
+          setAlerts(data);
+          setSelectedAlertId((prev) => {
+            if (prev && data.some((a) => a.id === prev)) return prev;
+            return data[0]?.id || null;
+          });
+        })
+        .catch(() => {});
+    }, 1500);
+    return () => clearInterval(fastInterval);
+  }, [hasInitialSearchingAlerts]);
 
   useEffect(() => {
     loadData();
@@ -220,7 +247,7 @@ export default function DashboardPage() {
     null;
 
   const featuredTriggeredAlert =
-    alerts.find((a) => a.status === "TRIGGERED") || null;
+    alerts.find((a) => a.status === "TRIGGERED" && !a.isInitialSearching) || null;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#0b2545]">
@@ -444,7 +471,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Tarjeta blanca del buscador */}
-            <CreateAlertForm onAlertCreated={loadData} />
+            <CreateAlertForm onAlertCreated={handleAlertCreated} />
           </div>
         </section>
       )}
@@ -711,7 +738,7 @@ export default function DashboardPage() {
                             <span>{getCityName(item.destinationIata)}</span>
                           </div>
                           <span className="text-xs font-extrabold text-[#0b2545] shrink-0">
-                            {displayPrice} €
+                            {item.isInitialSearching ? "…" : `${displayPrice} €`}
                           </span>
                         </div>
 
@@ -727,11 +754,18 @@ export default function DashboardPage() {
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${pill.classes}`}
                           >
-                            <span
-                              aria-hidden="true"
-                              className={`w-1.5 h-1.5 rounded-full ${pill.dot}`}
-                            />
-                            {pill.label}
+                            {item.isInitialSearching ? (
+                              <span
+                                aria-hidden="true"
+                                className="w-2.5 h-2.5 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin"
+                              />
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className={`w-1.5 h-1.5 rounded-full ${pill.dot}`}
+                              />
+                            )}
+                            {item.isInitialSearching ? "Buscando chollos..." : pill.label}
                           </span>
                           <span className="text-[10px] font-semibold text-slate-500">
                             {item.directOnly ? "✈️ Directo" : "🔄 Escalas"}
@@ -770,7 +804,7 @@ export default function DashboardPage() {
       </main>
 
       {/* Widget del Chat de Agente IA (minimizado por defecto en esquina inferior derecha) */}
-      <AgentChatbot onAlertCreated={loadData} />
+      <AgentChatbot onAlertCreated={handleAlertCreated} />
 
       {/* Notificación flotante (en escritorio abajo a la izquierda; en móvil arriba de la barra del chat) */}
       {featuredTriggeredAlert && !dismissToast && (

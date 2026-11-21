@@ -13,6 +13,8 @@ interface AirportSelectorProps {
   value: string;
   onChange: (iata: string) => void;
   placeholder?: string;
+  disabledIata?: string;
+  disabledReason?: string;
 }
 
 export function AirportSelector({
@@ -20,6 +22,8 @@ export function AirportSelector({
   value,
   onChange,
   placeholder = "Elige aeropuerto",
+  disabledIata,
+  disabledReason = "Ya seleccionado",
 }: AirportSelectorProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -120,6 +124,9 @@ export function AirportSelector({
 
   const customIataCandidate = query.trim().toUpperCase();
   const isCustomValid = /^[A-Z]{3}$/.test(customIataCandidate);
+  const normalizedDisabledIata = disabledIata?.trim().toUpperCase() || "";
+  const isCustomDisabled =
+    Boolean(normalizedDisabledIata) && customIataCandidate === normalizedDisabledIata;
 
   return (
     <div ref={containerRef} className="relative flex-1 min-w-0">
@@ -206,20 +213,30 @@ export function AirportSelector({
           <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
             {airports.map((airport) => {
               const isSelected = airport.iata === value;
+              const isDisabled =
+                Boolean(normalizedDisabledIata) &&
+                airport.iata.toUpperCase() === normalizedDisabledIata;
               return (
                 <button
                   key={airport.iata}
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  aria-disabled={isDisabled}
+                  disabled={isDisabled}
                   onClick={() => {
+                    if (isDisabled) return;
                     setSelectedAirport(airport);
                     onChange(airport.iata);
                     setQuery("");
                     setOpen(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-left hover:bg-sky-50/70 flex items-center justify-between transition cursor-pointer ${
-                    isSelected ? "bg-sky-50/50" : ""
+                  className={`w-full px-4 py-2.5 text-left flex items-center justify-between transition ${
+                    isDisabled
+                      ? "bg-slate-50 opacity-50 cursor-not-allowed"
+                      : isSelected
+                      ? "bg-sky-50/50 hover:bg-sky-50/70 cursor-pointer"
+                      : "hover:bg-sky-50/70 cursor-pointer"
                   }`}
                 >
                   <div className="min-w-0 pr-2">
@@ -230,7 +247,7 @@ export function AirportSelector({
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500 truncate">
-                      {airport.name}
+                      {isDisabled ? disabledReason : airport.name}
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[#0b2545] font-mono text-[11px] font-bold shrink-0">
@@ -246,16 +263,31 @@ export function AirportSelector({
                   type="button"
                   role="option"
                   aria-selected={value === customIataCandidate}
+                  aria-disabled={isCustomDisabled}
+                  disabled={isCustomDisabled}
                   onClick={() => {
+                    if (isCustomDisabled) return;
                     onChange(customIataCandidate);
                     setQuery("");
                     setOpen(false);
                   }}
-                  className="w-full px-4 py-2.5 text-left bg-cyan-50/60 hover:bg-cyan-100/60 flex items-center justify-between transition cursor-pointer"
+                  className={`w-full px-4 py-2.5 text-left flex items-center justify-between transition ${
+                    isCustomDisabled
+                      ? "bg-slate-50 opacity-50 cursor-not-allowed"
+                      : "bg-cyan-50/60 hover:bg-cyan-100/60 cursor-pointer"
+                  }`}
                 >
                   <span className="text-xs text-[#0077b6]">
-                    Usar código IATA:{" "}
-                    <strong className="font-mono">{customIataCandidate}</strong>
+                    {isCustomDisabled ? (
+                      <span className="text-slate-500">
+                        {customIataCandidate} · {disabledReason}
+                      </span>
+                    ) : (
+                      <>
+                        Usar código IATA:{" "}
+                        <strong className="font-mono">{customIataCandidate}</strong>
+                      </>
+                    )}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-[#0b2545] font-mono text-xs font-bold">
                     {customIataCandidate}

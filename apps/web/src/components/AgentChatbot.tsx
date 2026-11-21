@@ -254,14 +254,9 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
             <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0e325c]" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-white tracking-tight truncate">
-                Vera · Agente IA
-              </h3>
-              <span className="px-2 py-0.5 rounded-full bg-white/15 text-[10px] font-semibold text-cyan-200 shrink-0">
-                Multi-Skill
-              </span>
-            </div>
+            <h3 className="text-sm font-bold text-white tracking-tight truncate">
+              Vera · Agente IA
+            </h3>
             <p className="text-xs text-sky-100/85 truncate">
               Pídeme búsquedas o destinos en lenguaje natural
             </p>
@@ -594,7 +589,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                 className={
                   isExpanded
                     ? "grid grid-cols-1 sm:grid-cols-2 gap-2"
-                    : "flex flex-col items-start gap-1.5 max-h-24 overflow-y-auto"
+                    : "flex flex-col items-start gap-1.5 max-h-44 overflow-y-auto"
                 }
               >
                 {SUGGESTED_PROMPTS.map((item) => (
@@ -602,11 +597,11 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                     key={item.label}
                     type="button"
                     onClick={() => sendMessage(item.prompt)}
-                    className={`text-left px-3 rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200/80 hover:border-cyan-300 text-[11px] font-medium text-[#0b2545] transition cursor-pointer truncate max-w-full ${
-                      isExpanded ? "w-full py-1.5 px-3.5" : "py-1"
+                    className={`shrink-0 flex items-center min-w-0 max-w-full rounded-full bg-[#f4f7fb] hover:bg-sky-50 border border-slate-200/80 hover:border-cyan-300 px-3.5 py-1.5 text-left text-[11px] leading-snug font-medium text-[#0b2545] transition cursor-pointer ${
+                      isExpanded ? "w-full" : ""
                     }`}
                   >
-                    {item.label}
+                    <span className="truncate">{item.label}</span>
                   </button>
                 ))}
               </div>

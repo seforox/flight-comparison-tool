@@ -17,6 +17,7 @@ describe('IgnavAdapter', () => {
 
   describe('searchFlights (Mock Mode)', () => {
     it('should map Ignav mock response to domain FlightSearchResult', async () => {
+      const logSpy = jest.spyOn((adapter as any).logger, 'log');
       const query: FlightSearchQuery = {
         originIata: 'MAD',
         destinationIata: 'LON',
@@ -26,6 +27,9 @@ describe('IgnavAdapter', () => {
 
       const results = await adapter.searchFlights(query);
 
+      expect(logSpy).toHaveBeenCalledWith(
+        '[TEST MODE] Buscando vuelos simulados en el comparador de vuelos para MAD -> LON (2026-11-01 a 2026-11-04, 1 pax)',
+      );
       expect(results).toBeDefined();
       expect(results.length).toBeGreaterThanOrEqual(1);
 
@@ -66,6 +70,7 @@ describe('IgnavAdapter', () => {
   describe('searchFlights (Real Mode)', () => {
     it('should call real Ignav Round-Trip API with X-Api-Key and map response when USE_IGNAV_MOCK=false', async () => {
       process.env.USE_IGNAV_MOCK = 'false';
+      const logSpy = jest.spyOn((adapter as any).logger, 'log');
 
       mockedAxios.post.mockResolvedValue({
         data: {
@@ -92,6 +97,9 @@ describe('IgnavAdapter', () => {
 
       const results = await adapter.searchFlights(query);
 
+      expect(logSpy).toHaveBeenCalledWith(
+        'Ejecutando llamada al comparador de vuelos para MAD -> BCN (2026-11-10 a 2026-11-12, 2 pax)',
+      );
       expect(mockedAxios.post).toHaveBeenCalledWith(
         'https://ignav.com/api/fares/round-trip',
         {

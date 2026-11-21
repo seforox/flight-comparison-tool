@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { api, WEEKDAYS } from "@/lib/api";
+import {
+  api,
+  WEEKDAYS,
+  addDaysToIsoDate,
+  validateAlertSearchParams,
+} from "@/lib/api";
 import { AirportSelector } from "./AirportSelector";
 
 interface CreateAlertFormProps {
@@ -93,12 +98,15 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
     const nextMonthLastDay = new Date(nextYear, nextMonthIdx + 1, 0).getDate();
     const nextMonthLastDayStr = String(nextMonthLastDay).padStart(2, "0");
 
-    return [
-      {
+    const presets: Array<{ label: string; start: string; end: string }> = [];
+    if (curDay < curMonthLastDay) {
+      presets.push({
         label: `${curDay}–${curMonthLastDay} ${monthsShort[curMonthIdx]}`,
         start: `${curYear}-${curMonthNum}-${curDayStr}`,
         end: `${curYear}-${curMonthNum}-${curMonthLastDayStr}`,
-      },
+      });
+    }
+    presets.push(
       {
         label: monthsFull[curMonthIdx],
         start: `${curYear}-${curMonthNum}-01`,
@@ -109,7 +117,9 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
         start: `${nextYear}-${nextMonthNum}-01`,
         end: `${nextYear}-${nextMonthNum}-${nextMonthLastDayStr}`,
       },
-    ];
+    );
+
+    return presets;
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -130,8 +140,16 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
       setError("Por favor, selecciona el rango de fechas (desde y hasta).");
       return;
     }
-    if (new Date(startDate) > new Date(endDate)) {
-      setError("La fecha de inicio no puede ser posterior a la fecha de fin.");
+    const validationError = validateAlertSearchParams({
+      originIata,
+      destinationIata,
+      departureDay: Number(departureDay),
+      returnDay: Number(returnDay),
+      startDate,
+      endDate,
+    });
+    if (validationError) {
+      setError(validationError);
       return;
     }
     if (!adults) {
@@ -189,6 +207,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
   return (
     <form
       onSubmit={handleSubmit}
+      noValidate
       aria-label="Buscador de alertas de vuelos por días de la semana"
       className="bg-white rounded-3xl shadow-[0_18px_45px_rgba(11,37,69,0.12)] border border-slate-200/80 p-4 sm:p-7 space-y-5"
     >
@@ -199,6 +218,8 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           value={originIata}
           onChange={setOriginIata}
           placeholder="Ej. Madrid (MAD)"
+          disabledIata={destinationIata}
+          disabledReason="Ya seleccionado en destino"
         />
 
         <div className="flex items-center justify-center md:pb-0.5">
@@ -218,6 +239,8 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           value={destinationIata}
           onChange={setDestinationIata}
           placeholder="Ej. Londres (LON)"
+          disabledIata={originIata}
+          disabledReason="Ya seleccionado en origen"
         />
       </div>
 
@@ -304,6 +327,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <input
             id="field-end-date"
             type="date"
+            min={startDate ? addDaysToIsoDate(startDate, 1) : undefined}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             placeholder="AAAA-MM-DD"

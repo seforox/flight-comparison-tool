@@ -8,6 +8,8 @@ import {
   AlertStatus,
   WEEKDAYS,
   getCachedAirport,
+  addDaysToIsoDate,
+  validateAlertSearchParams,
 } from "@/lib/api";
 import { AirportSelector } from "./AirportSelector";
 
@@ -64,6 +66,40 @@ export function formatShortDate(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso.split("T")[0];
   return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
+}
+
+function formatNextSearchTimeframe(
+  intervalLabel?: string,
+  nextSearchAt?: string | null
+): string {
+  const baseInterval = intervalLabel || "cada 6 horas";
+  if (!nextSearchAt) return baseInterval;
+
+  const target = new Date(nextSearchAt);
+  if (isNaN(target.getTime())) return baseInterval;
+
+  const diffMs = target.getTime() - Date.now();
+  if (diffMs <= 0) return baseInterval;
+
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  let relativeLabel: string;
+  if (totalMinutes <= 1) {
+    relativeLabel = "en menos de 1 minuto";
+  } else if (totalMinutes < 60) {
+    relativeLabel = `en ${totalMinutes} min`;
+  } else {
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    relativeLabel =
+      mins > 0 ? `en ${hours} h ${mins} min` : `en ${hours} ${hours === 1 ? "hora" : "horas"}`;
+  }
+
+  const timeStr = target.toLocaleTimeString("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return `${baseInterval} (próxima búsqueda ${relativeLabel}, a las ${timeStr})`;
 }
 
 function generateAlertDateTuples(
@@ -297,8 +333,20 @@ export function AlertCard({
       setEditError("Por favor, selecciona un aeropuerto de origen y destino.");
       return;
     }
-    if (new Date(editStartDate) > new Date(editEndDate)) {
-      setEditError("La fecha de inicio no puede ser posterior a la fecha de fin.");
+    if (!editStartDate || !editEndDate) {
+      setEditError("Por favor, selecciona el rango de fechas (desde y hasta).");
+      return;
+    }
+    const validationError = validateAlertSearchParams({
+      originIata: editOriginIata,
+      destinationIata: editDestinationIata,
+      departureDay: Number(editDepartureDay),
+      returnDay: Number(editReturnDay),
+      startDate: editStartDate,
+      endDate: editEndDate,
+    });
+    if (validationError) {
+      setEditError(validationError);
       return;
     }
     const parsedPrice = Number(editMaxPriceEur);
@@ -332,6 +380,66 @@ export function AlertCard({
   };
 
   const isCompleted = alert.status === "COMPLETED";
+  const isInitialSearching = Boolean(alert.isInitialSearching);
+  const nextSearchPhrase = formatNextSearchTimeframe(
+    alert.nextSearchScheduleLabel,
+    alert.nextSearchAt
+  );
+
+  if (isInitialSearching) {
+    return (
+      <section
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        aria-label={`Buscando vuelos para ${getCityName(alert.originIata)} a ${getCityName(
+          alert.destinationIata
+        )}`}
+        className="bg-white rounded-3xl border border-sky-200/80 p-6 sm:p-10 shadow-[0_10px_30px_rgba(11,37,69,0.05)]"
+      >
+        <div className="flex flex-col items-center text-center max-w-md mx-auto py-4">
+          <div className="relative flex items-center justify-center w-16 h-16 mb-5">
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-full border-4 border-sky-100"
+            />
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#0096c7] border-r-[#00b4d8] animate-spin"
+            />
+            <span aria-hidden="true" className="text-xl">
+              ✈️
+            </span>
+          </div>
+
+          <h3 className="text-base sm:text-lg font-extrabold text-[#0b2545] tracking-tight">
+            Buscando los mejores chollos para tus vuelos
+          </h3>
+
+          <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
+            Estamos recuperando toda la información para{" "}
+            <strong className="text-[#0b2545]">
+              {getCityName(alert.originIata)} → {getCityName(alert.destinationIata)}
+            </strong>{" "}
+            ({getDayLabel(alert.departureDay)} ➔ {getDayLabel(alert.returnDay)}). En
+            cuanto termine la búsqueda mostraremos los resultados.
+          </p>
+
+          <div className="mt-4 inline-flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-[#0077b6]">
+            <span className="px-3 py-1 rounded-full bg-sky-50 border border-sky-200/70 font-mono">
+              {alert.originIata} – {alert.destinationIata}
+            </span>
+            <span className="px-3 py-1 rounded-full bg-sky-50 border border-sky-200/70">
+              {formatShortDate(alert.startDate)} – {formatShortDate(alert.endDate)}
+            </span>
+            <span className="px-3 py-1 rounded-full bg-sky-50 border border-sky-200/70">
+              {alert.directOnly ? "✈️ Solo directo" : "🔄 Con escalas"}
+            </span>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -479,6 +587,32 @@ export function AlertCard({
             </div>
           )}
 
+        {/* Aviso con plazo de próxima búsqueda automática cuando no se han encontrado vuelos todavía */}
+        {alert.status === "ACTIVE" &&
+          (!alert.matches || alert.matches.length === 0) && (
+            <div
+              role="status"
+              className="mt-4 p-3.5 sm:p-4 rounded-2xl bg-sky-50/80 border border-sky-200/80 flex items-start gap-2.5"
+            >
+              <span
+                aria-hidden="true"
+                className="w-7 h-7 rounded-xl bg-sky-100 border border-sky-200 flex items-center justify-center text-sm shrink-0"
+              >
+                🕒
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-extrabold text-[#0b2545]">
+                  No se han encontrado vuelos por debajo de {targetPrice} € por ahora
+                </p>
+                <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                  Volveremos a lanzar la búsqueda automáticamente{" "}
+                  <strong className="text-[#0077b6]">{nextSearchPhrase}</strong>.
+                  Si encontramos un chollo te avisaremos al instante.
+                </p>
+              </div>
+            </div>
+          )}
+
         {/* Barra de botones de acción */}
         <div
           role="group"
@@ -593,6 +727,7 @@ export function AlertCard({
         {isEditing && !isCompleted && (
           <form
             onSubmit={handleSaveEdit}
+            noValidate
             aria-label="Formulario para modificar los datos de la alerta"
             className="mt-5 pt-5 border-t border-slate-200/80 space-y-4 bg-[#f8fafc] p-4 sm:p-5 rounded-2xl border"
           >
@@ -612,13 +747,15 @@ export function AlertCard({
                 value={editOriginIata}
                 onChange={setEditOriginIata}
                 placeholder="Elige aeropuerto de origen"
+                disabledIata={editDestinationIata}
+                disabledReason="Ya seleccionado en destino"
               />
               <div className="flex items-center justify-center md:pb-0.5">
                 <button
                   type="button"
                   onClick={() => {
                     const tmp = editOriginIata;
-                    setEditOriginIata(editDestinationIata || "MAD");
+                    setEditOriginIata(editDestinationIata);
                     setEditDestinationIata(tmp);
                   }}
                   aria-label="Intercambiar origen y destino"
@@ -632,6 +769,8 @@ export function AlertCard({
                 value={editDestinationIata}
                 onChange={setEditDestinationIata}
                 placeholder="Elige aeropuerto de destino"
+                disabledIata={editOriginIata}
+                disabledReason="Ya seleccionado en origen"
               />
             </div>
 
@@ -689,6 +828,7 @@ export function AlertCard({
                 </label>
                 <input
                   type="date"
+                  min={editStartDate ? addDaysToIsoDate(editStartDate, 1) : undefined}
                   value={editEndDate}
                   onChange={(e) => setEditEndDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
@@ -978,6 +1118,13 @@ export function AlertCard({
             <span>
               Aún no se han detectado vuelos por debajo de {targetPrice} € en
               las fechas de este rango.
+              {alert.status === "ACTIVE" && (
+                <>
+                  {" "}
+                  Se volverá a buscar automáticamente{" "}
+                  <strong className="text-[#0077b6]">{nextSearchPhrase}</strong>.
+                </>
+              )}
             </span>
             <button
               type="button"

@@ -89,4 +89,80 @@ describe('AlertSchedulerService', () => {
     await scheduler.clearCompletionPrompt('triggered-alert-1');
     expect(scheduler.hasCompletionPrompt('triggered-alert-1')).toBe(false);
   });
+
+  it('should log the user email when enqueuing an active alert', async () => {
+    const futureStart = new Date();
+    futureStart.setUTCDate(futureStart.getUTCDate() + 10);
+    const futureEnd = new Date(futureStart);
+    futureEnd.setUTCDate(futureEnd.getUTCDate() + 14);
+
+    mockPrisma.alert.findUnique.mockResolvedValue({
+      id: 'ad6810f0-563f-458d-9318-cd073b52b71f',
+      userId: 'user-1',
+      status: 'ACTIVE',
+      originIata: 'MAD',
+      destinationIata: 'LON',
+      departureDay: 1,
+      returnDay: 3,
+      adults: 1,
+      directOnly: true,
+      maxPriceEur: 120,
+      startDate: futureStart,
+      endDate: futureEnd,
+      user: {
+        email: 'usuario@ejemplo.com',
+        telegramChatId: '12345',
+      },
+    });
+
+    const logSpy = jest.spyOn((scheduler as any).logger, 'log').mockImplementation();
+
+    const result = await scheduler.enqueueAlert('ad6810f0-563f-458d-9318-cd073b52b71f');
+
+    expect(result).toBe(1);
+    expect(mockQueue.add).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Alerta ad6810f0-563f-458d-9318-cd073b52b71f encolada con \d+ combinaciones de fechas por usuario@ejemplo\.com$/,
+      ),
+    );
+  });
+
+  it('should track initial search lifecycle until markSearchCompleted is called', async () => {
+    expect(await scheduler.isInitialSearchInProgress('new-alert-1', null)).toBe(false);
+
+    scheduler.markInitialSearchStarted('new-alert-1');
+    expect(await scheduler.isInitialSearchInProgress('new-alert-1', null)).toBe(true);
+
+    await scheduler.markSearchCompleted('new-alert-1');
+    expect(await scheduler.isInitialSearchInProgress('new-alert-1', null)).toBe(false);
+    expect(scheduler.getLastCheckedAt('new-alert-1')).toBeTruthy();
+  });
+
+  it('should compute human-readable search interval and nextSearchAt from ALERT_CRON_SCHEDULE', () => {
+    const prevCron = process.env.ALERT_CRON_SCHEDULE;
+    try {
+      delete process.env.ALERT_CRON_SCHEDULE;
+      const baseDate = new Date(2026, 10, 21, 21, 55, 0, 0);
+      const defaultInfo = scheduler.getSearchScheduleInfo(baseDate);
+      expect(defaultInfo.intervalLabel).toBe('cada 6 horas');
+      expect(defaultInfo.nextSearchAt).toBeTruthy();
+      const nextDefault = new Date(defaultInfo.nextSearchAt!);
+      expect(nextDefault.getHours()).toBe(0);
+      expect(nextDefault.getMinutes()).toBe(0);
+
+      process.env.ALERT_CRON_SCHEDULE = '*/15 * * * *';
+      const minInfo = scheduler.getSearchScheduleInfo(baseDate);
+      expect(minInfo.intervalLabel).toBe('cada 15 minutos');
+      const nextMin = new Date(minInfo.nextSearchAt!);
+      expect(nextMin.getHours()).toBe(22);
+      expect(nextMin.getMinutes()).toBe(0);
+    } finally {
+      if (prevCron === undefined) {
+        delete process.env.ALERT_CRON_SCHEDULE;
+      } else {
+        process.env.ALERT_CRON_SCHEDULE = prevCron;
+      }
+    }
+  });
 });

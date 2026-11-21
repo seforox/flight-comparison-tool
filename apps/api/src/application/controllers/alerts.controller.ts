@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Request, UseGuards, NotFoundException, BadRequestException } from '@nestjs/common';
-import { CreateAlertDto } from '../../domain/dtos/create-alert.dto';
+import { CreateAlertDto, validateAlertSearchRules } from '../../domain/dtos/create-alert.dto';
 import { UpdateAlertStatusDto } from '../../domain/dtos/update-alert-status.dto';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/auth/jwt-auth.guard';
@@ -15,14 +15,21 @@ export class AlertsController {
 
   @Post()
   async create(@Request() req: any, @Body() createAlertDto: CreateAlertDto) {
+    const validationErrors = validateAlertSearchRules(createAlertDto);
+    if (validationErrors.length > 0) {
+      throw new BadRequestException(validationErrors.join(' '));
+    }
+
     const userId = req.user.id; // Ya viene 100% seguro desde el JWT
     const directOnly = Boolean(createAlertDto.directOnly);
+    const originIata = createAlertDto.originIata.trim().toUpperCase();
+    const destinationIata = createAlertDto.destinationIata.trim().toUpperCase();
 
     const alert = await this.prisma.alert.create({
       data: {
         userId,
-        originIata: createAlertDto.originIata,
-        destinationIata: createAlertDto.destinationIata,
+        originIata,
+        destinationIata,
         departureDay: createAlertDto.departureDay,
         returnDay: createAlertDto.returnDay,
         adults: createAlertDto.adults ?? 1,
@@ -41,7 +48,13 @@ export class AlertsController {
     }
     (alert as any).directOnly = directOnly;
 
-    await this.alertScheduler.enqueueAlert(alert.id);
+    this.alertScheduler.markInitialSearchStarted?.(alert.id);
+    const enqueued = await this.alertScheduler.enqueueAlert(alert.id);
+    const scheduleInfo = this.alertScheduler.getSearchScheduleInfo?.();
+    (alert as any).isInitialSearching = enqueued > 0;
+    (alert as any).lastCheckedAt = null;
+    (alert as any).nextSearchScheduleLabel = scheduleInfo?.intervalLabel ?? 'cada 6 horas';
+    (alert as any).nextSearchAt = scheduleInfo?.nextSearchAt ?? null;
     return alert;
   }
 
@@ -70,21 +83,34 @@ export class AlertsController {
       orderBy: { createdAt: 'desc' },
     });
 
+    const scheduleInfo = this.alertScheduler.getSearchScheduleInfo?.() ?? {
+      cronExpression: '0 */6 * * *',
+      intervalLabel: 'cada 6 horas',
+      nextSearchAt: null,
+    };
+
     if ((this.prisma as any).$queryRawUnsafe && alerts.length > 0) {
       try {
         await (this.prisma as any).$executeRawUnsafe?.(
           `ALTER TABLE "Alert" ADD COLUMN IF NOT EXISTS "pendingCompletionPrompt" BOOLEAN NOT NULL DEFAULT false`,
         );
+        await (this.prisma as any).$executeRawUnsafe?.(
+          `ALTER TABLE "Alert" ADD COLUMN IF NOT EXISTS "lastCheckedAt" TIMESTAMP(3)`,
+        );
         const flags = await (this.prisma as any).$queryRawUnsafe(
-          `SELECT "id", "directOnly", "pendingCompletionPrompt" FROM "Alert" WHERE "userId" = $1`,
+          `SELECT "id", "directOnly", "pendingCompletionPrompt", "lastCheckedAt" FROM "Alert" WHERE "userId" = $1`,
           userId,
         );
-        const flagMap = new Map<string, { directOnly: boolean; pendingCompletionPrompt: boolean }>(
+        const flagMap = new Map<
+          string,
+          { directOnly: boolean; pendingCompletionPrompt: boolean; lastCheckedAt: string | null }
+        >(
           (flags || []).map((r: any) => [
             r.id,
             {
               directOnly: Boolean(r.directOnly),
               pendingCompletionPrompt: Boolean(r.pendingCompletionPrompt),
+              lastCheckedAt: r.lastCheckedAt ? new Date(r.lastCheckedAt).toISOString() : null,
             },
           ]),
         );
@@ -95,12 +121,15 @@ export class AlertsController {
             a.status === 'TRIGGERED' &&
             (Boolean(info?.pendingCompletionPrompt) ||
               this.alertScheduler.hasCompletionPrompt(a.id));
+          a.lastCheckedAt =
+            info?.lastCheckedAt ?? this.alertScheduler.getLastCheckedAt?.(a.id) ?? null;
         }
       } catch {
         for (const a of alerts as any[]) {
           a.pendingCompletionPrompt =
             a.status === 'TRIGGERED' &&
             this.alertScheduler.hasCompletionPrompt(a.id);
+          a.lastCheckedAt = this.alertScheduler.getLastCheckedAt?.(a.id) ?? null;
         }
       }
     } else {
@@ -108,6 +137,19 @@ export class AlertsController {
         a.pendingCompletionPrompt =
           a.status === 'TRIGGERED' &&
           this.alertScheduler.hasCompletionPrompt(a.id);
+        a.lastCheckedAt = this.alertScheduler.getLastCheckedAt?.(a.id) ?? null;
+      }
+    }
+
+    for (const a of alerts as any[]) {
+      const isInitialSearching =
+        a.status === 'ACTIVE' &&
+        Boolean(await this.alertScheduler.isInitialSearchInProgress?.(a.id, a.lastCheckedAt));
+      a.isInitialSearching = isInitialSearching;
+      a.nextSearchScheduleLabel = scheduleInfo.intervalLabel;
+      a.nextSearchAt = a.status === 'ACTIVE' ? scheduleInfo.nextSearchAt : null;
+      if (isInitialSearching) {
+        a.matches = [];
       }
     }
 
@@ -120,7 +162,14 @@ export class AlertsController {
     if ((alert as any).status === 'COMPLETED') {
       throw new BadRequestException('Una alerta completada no puede ser modificada.');
     }
+    const validationErrors = validateAlertSearchRules(updateAlertDto);
+    if (validationErrors.length > 0) {
+      throw new BadRequestException(validationErrors.join(' '));
+    }
+
     const directOnly = Boolean(updateAlertDto.directOnly);
+    const originIata = updateAlertDto.originIata.trim().toUpperCase();
+    const destinationIata = updateAlertDto.destinationIata.trim().toUpperCase();
 
     await this.alertScheduler.clearCompletionPrompt(id);
     await this.alertScheduler.cancelAlertJobs(id);
@@ -129,8 +178,8 @@ export class AlertsController {
     const updated = await this.prisma.alert.update({
       where: { id },
       data: {
-        originIata: updateAlertDto.originIata,
-        destinationIata: updateAlertDto.destinationIata,
+        originIata,
+        destinationIata,
         departureDay: updateAlertDto.departureDay,
         returnDay: updateAlertDto.returnDay,
         adults: updateAlertDto.adults ?? 1,
