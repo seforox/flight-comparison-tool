@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Request, UnauthorizedException, ConflictException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Request, UnauthorizedException, ConflictException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
@@ -17,9 +17,27 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() body: AuthCredentialsDto) {
-    const { email, password } = body;
+    if (process.env.ALLOW_REGISTRATION === 'false') {
+      throw new ForbiddenException('El registro de nuevos usuarios está desactivado');
+    }
 
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const { email, password } = body;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const allowedEmailsRaw = process.env.ALLOWED_EMAILS?.trim();
+    if (allowedEmailsRaw) {
+      const allowedSet = new Set(
+        allowedEmailsRaw
+          .split(',')
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean),
+      );
+      if (allowedSet.size > 0 && !allowedSet.has(normalizedEmail)) {
+        throw new ForbiddenException('Este correo no está autorizado para registrarse');
+      }
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
       throw new ConflictException('Ya existe un usuario registrado con ese email');
     }
@@ -28,7 +46,7 @@ export class AuthController {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const user = await this.prisma.user.create({
-      data: { email, passwordHash },
+      data: { email: normalizedEmail, passwordHash },
     });
 
     const payload = { email: user.email, sub: user.id };
@@ -38,8 +56,9 @@ export class AuthController {
   @Post('login')
   async login(@Body() body: AuthCredentialsDto) {
     const { email, password } = body;
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas');
     }

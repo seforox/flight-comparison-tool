@@ -1,4 +1,7 @@
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_USE_API_PROXY === 'true'
+    ? '/api/proxy'
+    : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 export type AlertStatus = 'ACTIVE' | 'PAUSED' | 'TRIGGERED' | 'COMPLETED';
 
