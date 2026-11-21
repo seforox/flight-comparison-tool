@@ -1,0 +1,182 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { Cron } from '@nestjs/schedule';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { FlightDateCalculatorService } from '../../domain/services/flight-date-calculator.service';
+import { FlightSearchJobPayload } from './flight-search-processor.service';
+
+@Injectable()
+export class AlertSchedulerService {
+  private readonly logger = new Logger(AlertSchedulerService.name);
+  private readonly promptedTriggeredAlerts = new Set<string>();
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dateCalculator: FlightDateCalculatorService,
+    @InjectQueue('flight-search-queue') private readonly flightSearchQueue: Queue<FlightSearchJobPayload>,
+  ) {}
+
+  hasCompletionPrompt(alertId: string): boolean {
+    return this.promptedTriggeredAlerts.has(alertId);
+  }
+
+  async markCompletionPrompt(alertId: string): Promise<void> {
+    this.promptedTriggeredAlerts.add(alertId);
+    if ((this.prisma as any).$executeRawUnsafe) {
+      try {
+        await (this.prisma as any).$executeRawUnsafe(
+          `ALTER TABLE "Alert" ADD COLUMN IF NOT EXISTS "pendingCompletionPrompt" BOOLEAN NOT NULL DEFAULT false`,
+        );
+        await (this.prisma as any).$executeRawUnsafe(
+          `UPDATE "Alert" SET "pendingCompletionPrompt" = true WHERE "id" = $1`,
+          alertId,
+        );
+      } catch {
+        // ignore if raw SQL not supported in test mock
+      }
+    }
+  }
+
+  async clearCompletionPrompt(alertId: string): Promise<void> {
+    this.promptedTriggeredAlerts.delete(alertId);
+    if ((this.prisma as any).$executeRawUnsafe) {
+      try {
+        await (this.prisma as any).$executeRawUnsafe(
+          `UPDATE "Alert" SET "pendingCompletionPrompt" = false WHERE "id" = $1`,
+          alertId,
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  async enqueueAlert(alertId: string): Promise<number> {
+    const alert = await this.prisma.alert.findUnique({
+      where: { id: alertId },
+      include: { user: true },
+    });
+
+    if (!alert || alert.status !== 'ACTIVE') {
+      return 0;
+    }
+
+    const now = new Date();
+    now.setUTCHours(0, 0, 0, 0);
+
+    // 1. Si la fecha fin ya expiró, marcar automáticamente como COMPLETED
+    if (new Date(alert.endDate) < now) {
+      await this.prisma.alert.update({
+        where: { id: alert.id },
+        data: { status: 'COMPLETED' as any },
+      });
+      this.logger.log(`Alerta ${alert.id} marcada como COMPLETED automáticamente (endDate expirada).`);
+      return 0;
+    }
+
+    // Calcular desde hoy o desde startDate (la que sea posterior) para no buscar fechas en el pasado
+    const effectiveStartDate = new Date(alert.startDate) > now ? new Date(alert.startDate) : now;
+
+    const tuples = this.dateCalculator.generateDateTuples(
+      effectiveStartDate,
+      alert.endDate,
+      alert.departureDay,
+      alert.returnDay,
+    );
+
+    // 2. Si ya no quedan combinaciones futuras posibles antes del endDate, marcar como COMPLETED
+    if (tuples.length === 0) {
+      await this.prisma.alert.update({
+        where: { id: alert.id },
+        data: { status: 'COMPLETED' as any },
+      });
+      this.logger.log(`Alerta ${alert.id} marcada como COMPLETED automáticamente (sin combinaciones futuras posibles).`);
+      return 0;
+    }
+
+    let directOnly = Boolean((alert as any).directOnly);
+    if ((alert as any).directOnly === undefined && (this.prisma as any).$queryRawUnsafe) {
+      try {
+        const rows = await (this.prisma as any).$queryRawUnsafe(
+          `SELECT "directOnly" FROM "Alert" WHERE "id" = $1 LIMIT 1`,
+          alert.id,
+        );
+        if (rows?.[0] !== undefined) {
+          directOnly = Boolean(rows[0].directOnly);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const payload: FlightSearchJobPayload = {
+      alertId: alert.id,
+      userId: alert.userId,
+      telegramChatId: alert.user.telegramChatId,
+      originIata: alert.originIata,
+      destinationIata: alert.destinationIata,
+      adults: (alert as any).adults ?? 1,
+      directOnly,
+      maxPriceEur: Number(alert.maxPriceEur),
+      dateTuples: tuples.map(t => ({
+        departureDate: t.departureDate.toISOString().split('T')[0],
+        returnDate: t.returnDate.toISOString().split('T')[0],
+      })),
+    };
+
+    await this.flightSearchQueue.add('search-flight', payload, {
+      jobId: alert.id,
+      removeOnComplete: true,
+      removeOnFail: true,
+    });
+
+    this.logger.log(`Alerta ${alert.id} encolada con ${tuples.length} combinaciones de fechas`);
+    return 1;
+  }
+
+  async cancelAlertJobs(alertId: string): Promise<void> {
+    try {
+      const job = await this.flightSearchQueue.getJob(alertId);
+      if (job) {
+        await job.remove();
+        this.logger.log(`Trabajo en cola eliminado para la alerta ${alertId}`);
+      }
+    } catch (error) {
+      this.logger.warn(`No se pudo eliminar el trabajo en cola de la alerta ${alertId}: ${error}`);
+    }
+  }
+
+  @Cron(process.env.ALERT_CRON_SCHEDULE || '0 */6 * * *')
+  async handleCron(): Promise<void> {
+    this.logger.log('Ejecutando Cron Job de revisión de alertas...');
+
+    // 1. Alertas en estado TRIGGERED (Vuelo encontrado) que el usuario aún no ha cambiado a COMPLETED
+    const triggeredAlerts = await this.prisma.alert.findMany({
+      where: { status: 'TRIGGERED' as any },
+      select: { id: true },
+    });
+
+    for (const triggered of triggeredAlerts || []) {
+      await this.markCompletionPrompt(triggered.id);
+      this.logger.log(
+        `Alerta ${triggered.id} sigue en TRIGGERED al pasar el Cron sin completarse: ofreciendo completarla o mantenerla.`,
+      );
+    }
+
+    // 2. Alertas en estado ACTIVE
+    const activeAlerts = await this.prisma.alert.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
+    });
+
+    let totalJobs = 0;
+    for (const alert of activeAlerts || []) {
+      totalJobs += await this.enqueueAlert(alert.id);
+    }
+
+    this.logger.log(
+      `Cron finalizado: ${activeAlerts?.length ?? 0} alertas activas revisadas (${totalJobs} trabajos encolados) y ${triggeredAlerts?.length ?? 0} alertas con vuelo encontrado notificadas para completar o mantener.`,
+    );
+  }
+}

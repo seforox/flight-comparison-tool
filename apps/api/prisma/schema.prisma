@@ -11,6 +11,7 @@ enum AlertStatus {
   ACTIVE
   PAUSED
   TRIGGERED
+  COMPLETED
 }
 
 model User {
@@ -31,6 +32,8 @@ model Alert {
   destinationIata String      // Ej: "LON"
   departureDay    Int         // 1 = Lunes, ..., 7 = Domingo
   returnDay       Int         // 1 = Lunes, ..., 7 = Domingo
+  adults          Int         @default(1) // Número de pasajeros
+  directOnly      Boolean     @default(false) // true = Solo vuelos directos, false = Con escalas permitidas
   maxPriceEur     Decimal     @db.Decimal(10, 2)
   startDate       DateTime    // Inicio del rango de monitorización
   endDate         DateTime    // Fin del rango de monitorización
@@ -50,4 +53,17 @@ model Match {
   airlineCode   String?
   bookingUrl    String?
   notifiedAt    DateTime @default(now())
+}
+
+model Airport {
+  iata       String   @id
+  name       String
+  city       String
+  country    String
+  popularity Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([city])
+  @@index([country])
+  @@index([popularity(sort: Desc)])
 }
