@@ -256,15 +256,12 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 sm:py-0 sm:h-20 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-4 sm:gap-6">
             {/* Logo V Flights */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center">
               <img
                 src="/logo.jpg"
                 alt="Logo de V Flights"
                 className="h-12 sm:h-15 w-auto object-contain"
               />
-              <span className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0b2545]">
-                V Flights
-              </span>
             </div>
 
             {/* Pestañas de navegación */}

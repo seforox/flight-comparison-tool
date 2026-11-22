@@ -11,15 +11,12 @@ export function LandingView() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-3">
           {/* Marca V Flights */}
           <div className="flex items-center gap-6 sm:gap-8">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center">
               <img
                 src="/logo.jpg"
                 alt="Logo de V Flights"
                 className="h-12 sm:h-15 w-auto object-contain"
               />
-              <span className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0b2545]">
-                V Flights
-              </span>
             </div>
 
             <nav
@@ -125,7 +122,7 @@ export function LandingView() {
               <p className="text-sm sm:text-lg text-sky-100/85 mt-5 leading-relaxed max-w-2xl">
                 ¿Quieres hacer una escapada de{" "}
                 <strong>viernes a domingo</strong> (o de lunes a miércoles) en
-                los próximos meses, pero te da igual qué fecha exacta volar
+                los próximos meses, pero te da igual en qué fecha exacta volar
                 mientras sea un chollo? Configura tus días de la semana
                 favoritos y deja que <strong>V Flights</strong> compare todas
                 las opciones por ti y te avise en Telegram cuando el precio
@@ -307,7 +304,7 @@ export function LandingView() {
                 ✨
               </div>
               <h3 className="text-base font-extrabold text-[#0b2545]">
-                Vera · Agente IA con 2 Skills
+                Vera · Agente IA
               </h3>
               <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                 ¿No sabes adónde escaparte? Pídele a <strong>Vera</strong> que
