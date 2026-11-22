@@ -65,13 +65,15 @@ export class AlertsController {
       throw new BadRequestException('Una alerta completada no puede actualizar tarifas.');
     }
     await this.alertScheduler.clearCompletionPrompt(id);
+    await this.alertScheduler.cancelAlertJobs(id);
     await this.prisma.match.deleteMany({ where: { alertId: id } });
     await this.prisma.alert.update({
       where: { id },
       data: { status: 'ACTIVE' as any },
     });
+    this.alertScheduler.markInitialSearchStarted?.(id);
     const jobsEnqueued = await this.alertScheduler.enqueueAlert(id);
-    return { alertId: id, jobsEnqueued };
+    return { alertId: id, jobsEnqueued, isInitialSearching: jobsEnqueued > 0 };
   }
 
   @Get()
@@ -199,7 +201,9 @@ export class AlertsController {
     }
     (updated as any).directOnly = directOnly;
 
-    await this.alertScheduler.enqueueAlert(id);
+    this.alertScheduler.markInitialSearchStarted?.(id);
+    const enqueued = await this.alertScheduler.enqueueAlert(id);
+    (updated as any).isInitialSearching = enqueued > 0;
     return updated;
   }
 
@@ -220,7 +224,11 @@ export class AlertsController {
     if (updateStatusDto.status !== 'ACTIVE') {
       await this.alertScheduler.cancelAlertJobs(id);
     } else {
-      await this.alertScheduler.enqueueAlert(id);
+      await this.alertScheduler.cancelAlertJobs(id);
+      await this.prisma.match.deleteMany({ where: { alertId: id } });
+      this.alertScheduler.markInitialSearchStarted?.(id);
+      const enqueued = await this.alertScheduler.enqueueAlert(id);
+      (updated as any).isInitialSearching = enqueued > 0;
     }
 
     return updated;

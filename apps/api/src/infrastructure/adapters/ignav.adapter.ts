@@ -39,6 +39,7 @@ export class IgnavAdapter implements FlightSearchProvider {
           adults: query.adults ?? 1,
           cabin_class: 'economy',
           market: 'ES',
+          ...(query.directOnly ? { max_stops: 0 } : {}),
         },
         {
           headers: {
@@ -134,11 +135,14 @@ export class IgnavAdapter implements FlightSearchProvider {
         const price = Number(item.price?.amount);
         if (isNaN(price) || price <= 0) return null;
 
-        const segments: any[] = item.outbound?.segments || [];
-        const stopsCount = segments.length > 0 ? segments.length - 1 : 0;
-        const isDirect = stopsCount === 0;
+        const outboundSegments: any[] = item.outbound?.segments || [];
+        const inboundSegments: any[] = item.inbound?.segments || [];
+        const outboundStops = outboundSegments.length > 0 ? outboundSegments.length - 1 : 0;
+        const inboundStops = inboundSegments.length > 0 ? inboundSegments.length - 1 : 0;
+        const stopsCount = Math.max(outboundStops, inboundStops);
+        const isDirect = outboundStops === 0 && inboundStops === 0;
 
-        const rawDepTime: string | undefined = segments[0]?.departure_time_local;
+        const rawDepTime: string | undefined = outboundSegments[0]?.departure_time_local;
         const departureTime = rawDepTime && rawDepTime.includes('T')
           ? rawDepTime.split('T')[1].slice(0, 5)
           : null;
@@ -150,11 +154,12 @@ export class IgnavAdapter implements FlightSearchProvider {
 
         const carrier =
           item.outbound?.carrier ||
-          segments[0]?.operating_carrier_name ||
-          segments[0]?.marketing_carrier_code ||
+          outboundSegments[0]?.operating_carrier_name ||
+          outboundSegments[0]?.marketing_carrier_code ||
           null;
 
         const adults = query.adults ?? 1;
+        const flightQueryPrefix = query.directOnly ? 'Nonstop%20flights' : 'Flights';
 
         return {
           departureDate: query.departureDate,
@@ -165,7 +170,7 @@ export class IgnavAdapter implements FlightSearchProvider {
           stopsCount,
           departureTime,
           durationMinutes,
-          bookingUrl: `https://www.google.com/travel/flights?q=Flights%20to%20${query.destinationIata}%20from%20${query.originIata}%20on%20${query.departureDate}%20through%20${query.returnDate}%20for%20${adults}%20adults`,
+          bookingUrl: `https://www.google.com/travel/flights?q=${flightQueryPrefix}%20to%20${query.destinationIata}%20from%20${query.originIata}%20on%20${query.departureDate}%20through%20${query.returnDate}%20for%20${adults}%20adults`,
         };
       })
       .filter((f: any) => f !== null && (!query.directOnly || f.isDirect)) as FlightSearchResult[];

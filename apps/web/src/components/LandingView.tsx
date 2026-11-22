@@ -1,9 +1,52 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 
+const DEMO_TARGET_PRICE = 85;
+
+const DEMO_TUPLES: Array<{
+  depKey: string;
+  fullPatternLabel: string;
+  subBarLabel: string;
+  price: number | null;
+  airlineCode: string | null;
+}> = [
+  {
+    depKey: "2026-11-06",
+    fullPatternLabel: "Vie 6 nov → Dom 8 nov",
+    subBarLabel: "6–8 nov",
+    price: null,
+    airlineCode: null,
+  },
+  {
+    depKey: "2026-11-13",
+    fullPatternLabel: "Vie 13 nov → Dom 15 nov",
+    subBarLabel: "13–15 nov",
+    price: 49,
+    airlineCode: "Ryanair",
+  },
+  {
+    depKey: "2026-11-20",
+    fullPatternLabel: "Vie 20 nov → Dom 22 nov",
+    subBarLabel: "20–22 nov",
+    price: 74,
+    airlineCode: "Iberia",
+  },
+  {
+    depKey: "2026-11-27",
+    fullPatternLabel: "Vie 27 nov → Dom 29 nov",
+    subBarLabel: "27–29 nov",
+    price: null,
+    airlineCode: null,
+  },
+];
+
 export function LandingView() {
+  const [selectedTupleIdx, setSelectedTupleIdx] = useState(1);
+  const activeTuple = DEMO_TUPLES[selectedTupleIdx] || DEMO_TUPLES[1];
+  const maxChartValue = DEMO_TARGET_PRICE;
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#0b2545]">
       {/* Barra de Navegación Superior con Login arriba a la derecha */}
@@ -11,15 +54,12 @@ export function LandingView() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-3">
           {/* Marca V Flights */}
           <div className="flex items-center gap-6 sm:gap-8">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center">
               <img
                 src="/logo.jpg"
                 alt="Logo de V Flights"
                 className="h-12 sm:h-15 w-auto object-contain"
               />
-              <span className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0b2545]">
-                V Flights
-              </span>
             </div>
 
             <nav
@@ -125,7 +165,7 @@ export function LandingView() {
               <p className="text-sm sm:text-lg text-sky-100/85 mt-5 leading-relaxed max-w-2xl">
                 ¿Quieres hacer una escapada de{" "}
                 <strong>viernes a domingo</strong> (o de lunes a miércoles) en
-                los próximos meses, pero te da igual qué fecha exacta volar
+                los próximos meses, pero te da igual en qué fecha exacta volar
                 mientras sea un chollo? Configura tus días de la semana
                 favoritos y deja que <strong>V Flights</strong> compare todas
                 las opciones por ti y te avise en Telegram cuando el precio
@@ -143,111 +183,239 @@ export function LandingView() {
               </div>
             </div>
 
-            {/* Tarjeta visual de demostración del funcionamiento por escapadas semanales */}
+            {/* Tarjeta visual de demostración fiel a una alerta real del panel */}
             <div
               aria-label="Ejemplo interactivo de una alerta de Madrid a Roma"
-              className="mt-10 sm:mt-12 bg-white rounded-3xl p-4 sm:p-8 shadow-[0_24px_60px_rgba(7,25,50,0.35)] border border-slate-100"
+              className="mt-10 sm:mt-12 bg-[#f4f7fb] rounded-3xl p-3 sm:p-5 shadow-[0_24px_60px_rgba(7,25,50,0.35)] border border-white/15 space-y-4"
             >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {/* Tarjeta principal de detalle de la ruta (idéntica a AlertCard) */}
+              <div className="rounded-3xl bg-white border border-slate-200/80 p-4 sm:p-6 shadow-[0_10px_30px_rgba(11,37,69,0.04)]">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    {/* Píldoras superiores */}
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <span
+                          aria-hidden="true"
+                          className="w-2 h-2 rounded-full bg-emerald-500"
+                        />
+                        Vuelo encontrado
+                      </span>
+                      <span className="px-3 py-1 rounded-full bg-sky-50 text-[#0077b6] border border-sky-200/70 text-xs font-semibold">
+                        <span aria-hidden="true">📅 </span>
+                        Viernes ➔ Domingo
+                      </span>
+                      <span className="px-3 py-1 rounded-full bg-slate-100 text-[#0b2545] border border-slate-200 text-xs font-semibold">
+                        <span aria-hidden="true">✈️ </span>
+                        Solo directo
+                      </span>
+                    </div>
+
+                    {/* Título grande: Madrid -> Roma */}
+                    <h2 className="text-xl sm:text-3xl font-extrabold text-[#0b2545] tracking-tight flex flex-wrap items-center gap-2">
+                      <span>Madrid</span>
                       <span
                         aria-hidden="true"
-                        className="w-2 h-2 rounded-full bg-emerald-500"
-                      />
-                      Vuelo encontrado
-                    </span>
-                    <span className="px-3 py-1 rounded-full bg-sky-50 text-[#0077b6] border border-sky-200/70 text-xs font-semibold">
-                      <span aria-hidden="true">📅 </span>
-                      Escapada recurrente: Todos los Viernes ➔ Domingo
-                    </span>
-                  </div>
-                  <h2 className="text-xl sm:text-3xl font-extrabold text-[#0b2545] flex flex-wrap items-center gap-2">
-                    <span>Madrid</span>
-                    <span aria-hidden="true" className="text-[#0096c7] font-normal">
-                      →
-                    </span>
-                    <span className="sr-only">a</span>
-                    <span>Roma</span>
-                    <span className="text-xs font-normal text-slate-500">
-                      (MAD – ROM · Noviembre · 1 adulto)
-                    </span>
-                  </h2>
-                </div>
+                        className="text-[#0096c7] font-normal"
+                      >
+                        →
+                      </span>
+                      <span className="sr-only">a</span>
+                      <span>Roma</span>
+                    </h2>
 
-                <div className="grid grid-cols-2 sm:flex items-center gap-2.5 sm:gap-3">
-                  <div className="bg-[#f4f7fb] border border-slate-200/60 rounded-2xl px-4 py-2.5 text-right">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                      MEJOR ESCAPADA
-                    </span>
-                    <span className="text-lg sm:text-xl font-extrabold text-emerald-600 block">
-                      49 €
-                    </span>
+                    {/* Subtítulo técnico */}
+                    <p className="text-xs sm:text-sm text-slate-600 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-mono font-semibold text-slate-700">
+                        MAD – ROM
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>1 nov – 30 nov</span>
+                      <span aria-hidden="true">·</span>
+                      <span>
+                        <span aria-hidden="true">👥 </span>1 pasajero
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>4 fechas monitorizadas</span>
+                    </p>
                   </div>
-                  <div className="bg-[#eff8ff] border border-cyan-200/60 rounded-2xl px-4 py-2.5 text-right">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                      TU OBJETIVO
-                    </span>
-                    <span className="text-lg sm:text-xl font-extrabold text-[#0096c7] block">
-                      85 €
-                    </span>
+
+                  {/* Cajas de MEJOR PRECIO y OBJETIVO MÁX. */}
+                  <div className="grid grid-cols-2 sm:flex items-center gap-2.5 sm:gap-3 w-full md:w-auto shrink-0">
+                    <div className="bg-[#f4f7fb] border border-slate-200/60 rounded-2xl px-4 py-3 text-right sm:min-w-[125px]">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                        MEJOR PRECIO
+                      </span>
+                      <span className="text-lg sm:text-2xl font-extrabold text-[#0b2545] mt-0.5 block">
+                        49 €
+                      </span>
+                    </div>
+
+                    <div className="bg-[#eff8ff] border border-cyan-200/60 rounded-2xl px-4 py-3 text-right sm:min-w-[125px]">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                        OBJETIVO MÁX.
+                      </span>
+                      <span className="text-lg sm:text-2xl font-extrabold text-[#0096c7] mt-0.5 block">
+                        {DEMO_TARGET_PRICE} €
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Ejemplo visual de las combinaciones comparadas */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
-                <div className="rounded-2xl p-4 bg-[#f8fafc] border border-slate-200/80">
-                  <span className="text-xs font-bold text-slate-600 block">
-                    Vie 6 nov → Dom 8 nov
-                  </span>
-                  <span className="text-[11px] text-slate-500 mt-2 block">
-                    Supera objetivo
-                  </span>
-                  <span className="text-lg font-extrabold text-slate-500 block">
-                    112 €
+              {/* Tarjetas interactivas de combinaciones de fechas */}
+              <div
+                role="group"
+                aria-label="Combinaciones de fechas dentro del rango"
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
+              >
+                {DEMO_TUPLES.map((tuple, idx) => {
+                  const isSelected = idx === selectedTupleIdx;
+                  const hasDeal = tuple.price !== null;
+                  return (
+                    <button
+                      key={tuple.depKey}
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => setSelectedTupleIdx(idx)}
+                      className={`relative text-left rounded-3xl p-4 sm:p-5 transition-all cursor-pointer border ${
+                        isSelected
+                          ? "bg-[#0e2a47] border-[#0e2a47] text-white shadow-lg shadow-[#0e2a47]/15"
+                          : "bg-white border-slate-200/80 hover:border-cyan-400 text-[#0b2545] shadow-xs"
+                      }`}
+                    >
+                      {hasDeal && !isSelected && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute top-4 right-4 w-2.5 h-2.5 rounded-full bg-[#00b4d8] ring-4 ring-cyan-100"
+                        />
+                      )}
+                      <span
+                        className={`text-sm font-bold block ${
+                          isSelected ? "text-white" : "text-[#0b2545]"
+                        }`}
+                      >
+                        {tuple.fullPatternLabel}
+                      </span>
+
+                      <span
+                        className={`text-[11px] block mt-3 ${
+                          isSelected ? "text-sky-200/80" : "text-slate-500"
+                        }`}
+                      >
+                        {hasDeal ? "vuelo encontrado" : "objetivo máx."}
+                      </span>
+                      <span
+                        className={`text-xl font-extrabold block ${
+                          isSelected
+                            ? "text-[#18c1f0]"
+                            : hasDeal
+                            ? "text-emerald-600"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        {hasDeal ? `${tuple.price} €` : `≤ ${DEMO_TARGET_PRICE} €`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Gráfica comparativa por fechas + Opción seleccionada */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 p-4 sm:p-6 shadow-[0_10px_30px_rgba(11,37,69,0.04)]">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+                  <div>
+                    <h3 className="text-base font-bold text-[#0b2545]">
+                      Comparativa de precios (Viernes → Domingo)
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Evolución de tarifas según los días seleccionados dentro de tu rango
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold text-[#0077b6] bg-sky-50 px-3 py-1 rounded-full border border-sky-200/60">
+                    Umbral objetivo: {DEMO_TARGET_PRICE} €
                   </span>
                 </div>
 
-                <div className="relative rounded-2xl p-4 bg-[#0e2a47] text-white shadow-lg shadow-[#0e2a47]/15">
-                  <span className="absolute top-3.5 right-3.5 px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 text-[10px] font-bold">
-                    ¡Chollo!
-                  </span>
-                  <span className="text-xs font-bold text-sky-200 block">
-                    Vie 13 nov → Dom 15 nov
-                  </span>
-                  <span className="text-[11px] text-sky-200/80 mt-2 block">
-                    Vuelo directo · Ryanair
-                  </span>
-                  <span className="text-xl font-extrabold text-[#18c1f0] block">
-                    49 €
-                  </span>
+                <div
+                  role="group"
+                  aria-label="Gráfica de barras de precios por fecha"
+                  className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 items-end min-h-40 pt-2 px-1"
+                >
+                  {DEMO_TUPLES.map((tuple, idx) => {
+                    const hasDeal = tuple.price !== null;
+                    const val = tuple.price ?? DEMO_TARGET_PRICE;
+                    const heightPct = Math.max(
+                      35,
+                      Math.round((val / maxChartValue) * 100)
+                    );
+                    const isSelected = idx === selectedTupleIdx;
+
+                    return (
+                      <button
+                        key={tuple.depKey}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setSelectedTupleIdx(idx)}
+                        className="flex flex-col items-center justify-end h-full group cursor-pointer p-1 rounded-xl"
+                      >
+                        <div className="w-full flex justify-center items-end h-28">
+                          <div
+                            style={{ height: `${heightPct}%` }}
+                            className={`w-9 sm:w-11 rounded-t-xl rounded-b-md transition-all ${
+                              hasDeal
+                                ? isSelected
+                                  ? "bg-gradient-to-b from-[#00b4d8] to-[#0077b6] shadow-md shadow-cyan-500/30 ring-2 ring-[#0e2a47]/20"
+                                  : "bg-gradient-to-b from-[#38bdf8] to-[#0284c7] opacity-90 group-hover:opacity-100"
+                                : "bg-slate-200 border border-dashed border-slate-300"
+                            }`}
+                          />
+                        </div>
+                        <span
+                          className={`text-xs font-extrabold mt-2.5 ${
+                            hasDeal ? "text-[#0077b6]" : "text-slate-500"
+                          }`}
+                        >
+                          {hasDeal ? `${tuple.price}€` : `>${DEMO_TARGET_PRICE}€`}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase text-[#0b2545] mt-0.5">
+                          {tuple.subBarLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="relative rounded-2xl p-4 bg-white border-2 border-cyan-400/70">
-                  <span className="text-xs font-bold text-[#0b2545] block">
-                    Vie 20 nov → Dom 22 nov
-                  </span>
-                  <span className="text-[11px] text-emerald-700 font-semibold mt-2 block">
-                    Dentro de tu objetivo
-                  </span>
-                  <span className="text-lg font-extrabold text-[#0b2545] block">
-                    74 €
-                  </span>
-                </div>
+                {activeTuple.price !== null && (
+                  <div className="mt-5 pt-4 border-t border-slate-100">
+                    <div className="p-4 rounded-2xl bg-[#f0f9ff] border border-cyan-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#0077b6] block">
+                          OPCIÓN SELECCIONADA
+                        </span>
+                        <div className="text-sm font-extrabold text-[#0b2545] mt-0.5">
+                          <span aria-hidden="true">🛫 </span>
+                          {activeTuple.fullPatternLabel} ·{" "}
+                          <span className="text-[#0077b6]">
+                            {activeTuple.airlineCode || "Vuelo directo"}
+                          </span>
+                        </div>
+                      </div>
 
-                <div className="rounded-2xl p-4 bg-[#f8fafc] border border-slate-200/80">
-                  <span className="text-xs font-bold text-slate-600 block">
-                    Vie 27 nov → Dom 29 nov
-                  </span>
-                  <span className="text-[11px] text-slate-500 mt-2 block">
-                    Supera objetivo
-                  </span>
-                  <span className="text-lg font-extrabold text-slate-500 block">
-                    98 €
-                  </span>
-                </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-3">
+                        <span className="text-lg font-extrabold text-emerald-700">
+                          {activeTuple.price} €
+                        </span>
+                        <Link
+                          href="/login"
+                          className="px-4 py-2 rounded-full bg-gradient-to-r from-[#0e3968] to-[#00a8e8] hover:opacity-95 text-white font-semibold text-xs shadow-sm transition"
+                        >
+                          Reservar vuelo <span aria-hidden="true">↗</span>
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -307,7 +475,7 @@ export function LandingView() {
                 ✨
               </div>
               <h3 className="text-base font-extrabold text-[#0b2545]">
-                Vera · Agente IA con 2 Skills
+                Vera · Agente IA
               </h3>
               <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                 ¿No sabes adónde escaparte? Pídele a <strong>Vera</strong> que

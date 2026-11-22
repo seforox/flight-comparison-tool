@@ -33,6 +33,7 @@ describe('AlertsController (Validación de búsquedas)', () => {
       enqueueAlert: jest.fn().mockResolvedValue(1),
       cancelAlertJobs: jest.fn().mockResolvedValue(undefined),
       clearCompletionPrompt: jest.fn().mockResolvedValue(undefined),
+      markInitialSearchStarted: jest.fn(),
     };
 
     controller = new AlertsController(mockPrisma, mockScheduler);
@@ -137,6 +138,19 @@ describe('AlertsController (Validación de búsquedas)', () => {
 
       await expect(controller.update(mockReq, 'alert-1', dto)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.alert.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PATCH /alerts/:id/status (updateStatus)', () => {
+    it('should reset matches, mark search in progress, and re-enqueue when reactivating to ACTIVE', async () => {
+      const res: any = await controller.updateStatus(mockReq, 'alert-1', { status: 'ACTIVE' as any });
+
+      expect(mockScheduler.clearCompletionPrompt).toHaveBeenCalledWith('alert-1');
+      expect(mockScheduler.cancelAlertJobs).toHaveBeenCalledWith('alert-1');
+      expect(mockPrisma.match.deleteMany).toHaveBeenCalledWith({ where: { alertId: 'alert-1' } });
+      expect(mockScheduler.markInitialSearchStarted).toHaveBeenCalledWith('alert-1');
+      expect(mockScheduler.enqueueAlert).toHaveBeenCalledWith('alert-1');
+      expect(res.isInitialSearching).toBe(true);
     });
   });
 
