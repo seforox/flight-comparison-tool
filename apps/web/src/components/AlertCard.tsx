@@ -15,7 +15,7 @@ import { AirportSelector } from "./AirportSelector";
 
 interface AlertCardProps {
   alert: FlightAlert;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   collapsibleDates?: boolean;
   showCompletionPrompt?: boolean;
   onKeepAlert?: (alertId: string) => void;
@@ -162,6 +162,7 @@ export function AlertCard({
   onKeepAlert,
 }: AlertCardProps) {
   const [busy, setBusy] = useState(false);
+  const [waitingSearchStart, setWaitingSearchStart] = useState(false);
   const [selectedTupleIdx, setSelectedTupleIdx] = useState(0);
   const [resolvedCities, setResolvedCities] = useState<Record<string, string>>({});
   const [showDates, setShowDates] = useState(!collapsibleDates);
@@ -282,23 +283,29 @@ export function AlertCard({
 
   const handleStatusChange = async (newStatus: AlertStatus) => {
     setBusy(true);
+    if (newStatus === "ACTIVE") {
+      setWaitingSearchStart(true);
+    }
     try {
       await api.alerts.updateStatus(alert.id, newStatus);
       if (newStatus === "COMPLETED") {
         setIsEditing(false);
       }
-      onRefresh();
+      await onRefresh();
     } finally {
+      setWaitingSearchStart(false);
       setBusy(false);
     }
   };
 
   const handleManualCheck = async () => {
     setBusy(true);
+    setWaitingSearchStart(true);
     try {
       await api.alerts.triggerCheck(alert.id);
-      setTimeout(() => onRefresh(), 1500);
+      await onRefresh();
     } finally {
+      setWaitingSearchStart(false);
       setBusy(false);
     }
   };
@@ -357,6 +364,7 @@ export function AlertCard({
 
     setEditError(null);
     setBusy(true);
+    setWaitingSearchStart(true);
     try {
       await api.alerts.update(alert.id, {
         originIata: editOriginIata,
@@ -370,17 +378,17 @@ export function AlertCard({
         endDate: new Date(`${editEndDate}T23:59:59.999Z`).toISOString(),
       });
       setIsEditing(false);
-      onRefresh();
-      setTimeout(() => onRefresh(), 1500);
+      await onRefresh();
     } catch (err: any) {
       setEditError(err.message || "Error al modificar la alerta");
     } finally {
+      setWaitingSearchStart(false);
       setBusy(false);
     }
   };
 
   const isCompleted = alert.status === "COMPLETED";
-  const isInitialSearching = Boolean(alert.isInitialSearching);
+  const isInitialSearching = Boolean(alert.isInitialSearching) || waitingSearchStart;
   const nextSearchPhrase = formatNextSearchTimeframe(
     alert.nextSearchScheduleLabel,
     alert.nextSearchAt
@@ -628,16 +636,6 @@ export function AlertCard({
             </span>
           ) : (
             <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleManualCheck}
-                className="px-3.5 py-2 rounded-xl bg-[#f4f7fb] hover:bg-slate-200/70 border border-slate-200/80 text-xs font-semibold text-[#0b2545] flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-              >
-                <span aria-hidden="true">🔄</span>
-                <span>{busy ? "Comprobando..." : "Actualizar tarifas"}</span>
-              </button>
-
               <button
                 type="button"
                 disabled={busy || alert.status === "ACTIVE"}
