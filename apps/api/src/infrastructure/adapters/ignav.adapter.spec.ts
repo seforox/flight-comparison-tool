@@ -128,9 +128,125 @@ describe('IgnavAdapter', () => {
           airlineCode: 'Iberia',
           isDirect: true,
           stopsCount: 0,
-          bookingUrl: expect.stringContaining('MAD'),
+          bookingUrl:
+            'https://www.google.com/travel/flights?q=Flights%20to%20BCN%20from%20MAD%20on%202026-11-10%20through%202026-11-12%20for%202%20adults',
         }),
       );
+    });
+
+    it('should send max_stops: 0, reject inbound layovers, and use Nonstop flights URL when directOnly is true', async () => {
+      process.env.USE_IGNAV_MOCK = 'false';
+
+      mockedAxios.post.mockResolvedValue({
+        data: {
+          itineraries: [
+            {
+              price: { amount: 415, currency: 'EUR' },
+              outbound: {
+                carrier: 'Air Europa',
+                segments: [{ marketing_carrier_code: 'UX' }],
+              },
+              inbound: {
+                carrier: 'Air Serbia',
+                segments: [
+                  { marketing_carrier_code: 'JU' },
+                  { marketing_carrier_code: 'JU' },
+                ],
+              },
+              ignav_id: 'ignav_mixed_layover',
+            },
+            {
+              price: { amount: 690, currency: 'EUR' },
+              outbound: {
+                carrier: 'Air Europa',
+                segments: [{ marketing_carrier_code: 'UX' }],
+              },
+              inbound: {
+                carrier: 'Air Europa',
+                segments: [{ marketing_carrier_code: 'UX' }],
+              },
+              ignav_id: 'ignav_true_direct',
+            },
+          ],
+        },
+      });
+
+      const query: FlightSearchQuery = {
+        originIata: 'MAD',
+        destinationIata: 'MUC',
+        departureDate: '2026-12-14',
+        returnDate: '2026-12-20',
+        adults: 2,
+        directOnly: true,
+      };
+
+      const results = await adapter.searchFlights(query);
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        'https://ignav.com/api/fares/round-trip',
+        {
+          origin: 'MAD',
+          destination: 'MUC',
+          departure_date: '2026-12-14',
+          return_date: '2026-12-20',
+          adults: 2,
+          cabin_class: 'economy',
+          market: 'ES',
+          max_stops: 0,
+        },
+        expect.any(Object),
+      );
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toEqual(
+        expect.objectContaining({
+          foundPriceEur: 690,
+          airlineCode: 'Air Europa',
+          isDirect: true,
+          stopsCount: 0,
+          bookingUrl:
+            'https://www.google.com/travel/flights?q=Nonstop%20flights%20to%20MUC%20from%20MAD%20on%202026-12-14%20through%202026-12-20%20for%202%20adults',
+        }),
+      );
+    });
+
+    it('should detect inbound stops as non-direct when directOnly is false', async () => {
+      process.env.USE_IGNAV_MOCK = 'false';
+
+      mockedAxios.post.mockResolvedValue({
+        data: {
+          itineraries: [
+            {
+              price: { amount: 415, currency: 'EUR' },
+              outbound: {
+                carrier: 'Air Europa',
+                segments: [{ marketing_carrier_code: 'UX' }],
+              },
+              inbound: {
+                carrier: 'Air Serbia',
+                segments: [
+                  { marketing_carrier_code: 'JU' },
+                  { marketing_carrier_code: 'JU' },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      const results = await adapter.searchFlights({
+        originIata: 'MAD',
+        destinationIata: 'MUC',
+        departureDate: '2026-12-14',
+        returnDate: '2026-12-20',
+        adults: 2,
+        directOnly: false,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].isDirect).toBe(false);
+      expect(results[0].stopsCount).toBe(1);
+      expect(results[0].bookingUrl).toContain('?q=Flights%20to%20MUC');
     });
   });
 });

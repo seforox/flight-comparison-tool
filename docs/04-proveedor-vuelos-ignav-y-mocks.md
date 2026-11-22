@@ -13,13 +13,13 @@ Para poder desarrollar y probar todos los flujos sin agotar la cuota gratuita de
   - `INN` (o rutas regionales con escala detectadas por `isMockLayoverRoute`) ➔ `LAYOVER_FLIGHT` (78.90€ con Lufthansa con 1 escala, `isDirect: false`, `stopsCount: 1`), ideal para verificar el filtro `directOnly` y la comprobación de vuelos directos del recomendador.
   - `XXX` ➔ `EMPTY_RESPONSE` (0 vuelos disponibles).
   - `429` ➔ Lanza error `HTTP 429 Too Many Requests` para probar la resiliencia del Worker.
-- **`USE_IGNAV_MOCK="false"`:** Ejecuta la llamada HTTP POST real a `https://ignav.com/api/fares/round-trip` autenticada con el header `X-Api-Key: process.env.IGNAV_API_KEY`, enviando `origin`, `destination`, `departure_date`, `return_date`, `adults`, `cabin_class: 'economy'` y `market: 'ES'`.
+- **`USE_IGNAV_MOCK="false"`:** Ejecuta la llamada HTTP POST real a `https://ignav.com/api/fares/round-trip` autenticada con el header `X-Api-Key: process.env.IGNAV_API_KEY`, enviando `origin`, `destination`, `departure_date`, `return_date`, `adults`, `cabin_class: 'economy'`, `market: 'ES'` y `max_stops: 0` cuando `directOnly` es `true`.
 
 ## 3. Información Extraída y Filtrado por Escalas (`directOnly`)
 `IgnavAdapter` transforma cada itinerario en un `FlightSearchResult` enriquecido con:
 - **Precio en EUR (`foundPriceEur`)**.
 - **Nombre completo de la aerolínea (`airlineCode`):** Prioriza `outbound.carrier` / `operating_carrier_name` (ej. `"Ryanair"`, `"Iberia"`, `"Lufthansa"`) en lugar de solo el código IATA.
-- **Escalas (`isDirect`, `stopsCount`):** Calculado a partir del número de segmentos del tramo (`segments.length - 1`). Si la consulta incluye `directOnly: true`, tanto `IgnavAdapter` como `FlightSearchProcessorService` descartan automáticamente cualquier itinerario con `isDirect === false`.
+- **Escalas (`isDirect`, `stopsCount`):** Calculado a partir de los segmentos tanto de la ida (`outbound.segments`) como de la vuelta (`inbound.segments`), exigiendo 0 escalas en ambos tramos para marcar `isDirect: true`. Si la consulta incluye `directOnly: true`, tanto `IgnavAdapter` (enviando `max_stops: 0` y filtrando en local) como `FlightSearchProcessorService` descartan automáticamente cualquier itinerario con `isDirect === false`.
 - **Hora de salida (`departureTime`):** Hora local extraída del primer segmento (`HH:mm`).
 - **Duración aproximada (`durationMinutes`):** Formateada en horas y minutos (`~2h 30m`).
-- **Enlace de reserva (`bookingUrl`):** URL parametrizada hacia Google Flights con origen, destino, fecha de ida, fecha de vuelta y número de pasajeros (`adults`).
+- **Enlace de reserva (`bookingUrl`):** URL parametrizada hacia Google Flights con origen, destino, fecha de ida, fecha de vuelta, número de pasajeros (`adults`) y filtro `Nonstop flights` cuando `directOnly` es `true`.
