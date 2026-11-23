@@ -33,7 +33,7 @@ export class AlertsController {
         departureDay: createAlertDto.departureDay,
         returnDay: createAlertDto.returnDay,
         adults: createAlertDto.adults ?? 1,
-        maxPriceEur: createAlertDto.maxPriceEur,
+        maxPriceEur: createAlertDto.maxPriceEur ?? null,
         startDate: new Date(createAlertDto.startDate),
         endDate: new Date(createAlertDto.endDate),
       } as any,
@@ -150,7 +150,11 @@ export class AlertsController {
 
       const hasValidMatches =
         Array.isArray(a.matches) &&
-        a.matches.some((m: any) => Number(m.foundPriceEur) <= Number(a.maxPriceEur));
+        a.matches.some(
+          (m: any) =>
+            a.maxPriceEur == null ||
+            Number(m.foundPriceEur) <= Number(a.maxPriceEur),
+        );
 
       if (a.status === 'ACTIVE' && !isInitialSearching && hasValidMatches) {
         a.status = 'TRIGGERED';
@@ -204,7 +208,7 @@ export class AlertsController {
         departureDay: updateAlertDto.departureDay,
         returnDay: updateAlertDto.returnDay,
         adults: updateAlertDto.adults ?? 1,
-        maxPriceEur: updateAlertDto.maxPriceEur,
+        maxPriceEur: updateAlertDto.maxPriceEur ?? null,
         startDate: new Date(updateAlertDto.startDate),
         endDate: new Date(updateAlertDto.endDate),
         status: 'ACTIVE' as any,

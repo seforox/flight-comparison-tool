@@ -69,7 +69,7 @@ model Alert {
   returnDay       Int         // 1 = Lunes, ..., 7 = Domingo
   adults          Int         @default(1) // Número de pasajeros
   directOnly      Boolean     @default(false) // true = Solo vuelos directos, false = Con escalas permitidas
-  maxPriceEur     Decimal     @db.Decimal(10, 2)
+  maxPriceEur     Decimal?    @db.Decimal(10, 2) // Presupuesto máximo opcional (null = sin límite de precio)
   startDate       DateTime    // Inicio del rango de monitorización
   endDate         DateTime    // Fin del rango de monitorización
   status          AlertStatus @default(ACTIVE)
@@ -124,7 +124,7 @@ model Airport {
 ### Alertas (`/alerts`) - Autenticado vía JWT
 
 - `POST /alerts`: Crea alerta mediante formulario estructurado y dispara inmediatamente su primera búsqueda en la cola.
-  - Body: `{ originIata, destinationIata, departureDay, returnDay, adults?, directOnly?, maxPriceEur, startDate, endDate }`.
+  - Body: `{ originIata, destinationIata, departureDay, returnDay, adults?, directOnly?, maxPriceEur?, startDate, endDate }` (`maxPriceEur` es opcional; `null` u omitido busca sin límite de precio).
 - `PATCH /alerts/:id`: Modifica los parámetros de una alerta existente (excepto si está `COMPLETED`), limpia sus coincidencias anteriores, reactiva su estado a `ACTIVE` y la vuelve a encolar inmediatamente.
 - `POST /alerts/:id/check`: Fuerza manualmente el re-encolado y comprobación de tarifas de una alerta.
 - `GET /alerts`: Devuelve las alertas del usuario autenticado incluyendo su historial de coincidencias (`matches`), flag `directOnly` e indicador `pendingCompletionPrompt`.
@@ -151,7 +151,7 @@ model Airport {
    - Consume trabajos respetando un limitador de tasa (*Rate Limiter*: máx. 2 peticiones/segundo).
    - Verifica que la alerta siga en estado `ACTIVE` antes de iniciar la búsqueda.
    - Consulta cada combinación de fechas a través del puerto `FlightSearchProvider` (`IgnavAdapter`), aplicando el filtro `directOnly` si el usuario solicitó exclusivamente vuelos sin escalas.
-   - Para cada fecha cuyo mejor precio sea `<= alert.maxPriceEur`:
+   - Para cada fecha cuyo mejor precio cumpla el filtro (`alert.maxPriceEur == null` o precio `<= alert.maxPriceEur`):
      1. Inserta el registro en la tabla `Match`.
      2. Acumula la oferta encontrada (incluyendo aerolínea, si es directo o con escalas, hora de salida, duración y link de reserva).
    - Al finalizar el recorrido de fechas, si se encontró al menos una oferta:

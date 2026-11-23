@@ -147,11 +147,18 @@ function generateAlertDateTuples(
   return tuples;
 }
 
-export function getBestPriceForAlert(alert: FlightAlert): number {
+export function getBestPriceForAlert(alert: FlightAlert): number | null {
   if (alert.matches && alert.matches.length > 0) {
     return Math.min(...alert.matches.map((m) => Number(m.foundPriceEur)));
   }
-  return Number(alert.maxPriceEur);
+  if (
+    alert.maxPriceEur !== null &&
+    alert.maxPriceEur !== undefined &&
+    alert.maxPriceEur !== ""
+  ) {
+    return Number(alert.maxPriceEur);
+  }
+  return null;
 }
 
 export function AlertCard({
@@ -175,9 +182,14 @@ export function AlertCard({
   const [editReturnDay, setEditReturnDay] = useState(alert.returnDay);
   const [editStartDate, setEditStartDate] = useState(alert.startDate.split("T")[0]);
   const [editEndDate, setEditEndDate] = useState(alert.endDate.split("T")[0]);
+  const formatMaxPriceInput = (val: string | number | null | undefined) =>
+    val !== null && val !== undefined && val !== "" ? String(Number(val)) : "";
+
   const [editAdults, setEditAdults] = useState(alert.adults ?? 1);
   const [editDirectOnly, setEditDirectOnly] = useState(Boolean(alert.directOnly));
-  const [editMaxPriceEur, setEditMaxPriceEur] = useState(String(Number(alert.maxPriceEur)));
+  const [editMaxPriceEur, setEditMaxPriceEur] = useState(
+    formatMaxPriceInput(alert.maxPriceEur)
+  );
   const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -191,7 +203,7 @@ export function AlertCard({
     setEditEndDate(alert.endDate.split("T")[0]);
     setEditAdults(alert.adults ?? 1);
     setEditDirectOnly(Boolean(alert.directOnly));
-    setEditMaxPriceEur(String(Number(alert.maxPriceEur)));
+    setEditMaxPriceEur(formatMaxPriceInput(alert.maxPriceEur));
     setEditError(null);
   }, [alert.id, collapsibleDates]);
 
@@ -273,7 +285,12 @@ export function AlertCard({
     dateTuples[Math.min(selectedTupleIdx, Math.max(0, dateTuples.length - 1))] ||
     null;
 
-  const targetPrice = Number(alert.maxPriceEur);
+  const targetPrice: number | null =
+    alert.maxPriceEur !== null &&
+    alert.maxPriceEur !== undefined &&
+    alert.maxPriceEur !== ""
+      ? Number(alert.maxPriceEur)
+      : null;
   const matchedDatesCount = useMemo(() => {
     const fromTuples = dateTuples.filter((t) => t.match !== null).length;
     if (fromTuples > 0) return fromTuples;
@@ -281,8 +298,11 @@ export function AlertCard({
   }, [dateTuples, alert.matches]);
   const maxChartValue = useMemo(() => {
     const prices = dateTuples
-      .map((t) => t.price ?? targetPrice)
-      .concat([targetPrice]);
+      .map((t) => t.price)
+      .filter((p): p is number => p !== null);
+    if (targetPrice !== null) {
+      prices.push(targetPrice);
+    }
     return Math.max(...prices, 1);
   }, [dateTuples, targetPrice]);
 
@@ -334,7 +354,7 @@ export function AlertCard({
     setEditEndDate(alert.endDate.split("T")[0]);
     setEditAdults(alert.adults ?? 1);
     setEditDirectOnly(Boolean(alert.directOnly));
-    setEditMaxPriceEur(String(Number(alert.maxPriceEur)));
+    setEditMaxPriceEur(formatMaxPriceInput(alert.maxPriceEur));
     setEditError(null);
     setIsEditing(true);
   };
@@ -361,10 +381,14 @@ export function AlertCard({
       setEditError(validationError);
       return;
     }
-    const parsedPrice = Number(editMaxPriceEur);
-    if (!parsedPrice || parsedPrice <= 0) {
-      setEditError("Introduce un presupuesto máximo válido mayor que 0 €.");
-      return;
+    const trimmedPrice = editMaxPriceEur.trim();
+    let parsedPrice: number | null = null;
+    if (trimmedPrice !== "") {
+      parsedPrice = Number(trimmedPrice);
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        setEditError("Introduce un presupuesto máximo válido mayor que 0 € o déjalo vacío.");
+        return;
+      }
     }
 
     setEditError(null);
@@ -544,8 +568,14 @@ export function AlertCard({
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
                 OBJETIVO MÁX.
               </span>
-              <span className="text-lg sm:text-2xl font-extrabold text-[#0096c7] mt-0.5 block">
-                {targetPrice} €
+              <span
+                className={`font-extrabold text-[#0096c7] mt-0.5 block ${
+                  targetPrice !== null
+                    ? "text-lg sm:text-2xl"
+                    : "text-sm sm:text-base leading-snug"
+                }`}
+              >
+                {targetPrice !== null ? `${targetPrice} €` : "Más barato posible"}
               </span>
             </div>
           </div>
@@ -570,8 +600,8 @@ export function AlertCard({
                   {matchedDatesCount > 0 && (
                     <span>
                       Hemos encontrado {matchedDatesCount}{" "}
-                      {matchedDatesCount === 1 ? "vuelo" : "vuelos"} por debajo de{" "}
-                      {targetPrice} €
+                      {matchedDatesCount === 1 ? "vuelo" : "vuelos"}
+                      {targetPrice !== null ? ` por debajo de ${targetPrice} €` : ""}
                       {bestPrice !== null ? ` (desde ${bestPrice} €)` : ""}.
                     </span>
                   )}
@@ -647,7 +677,9 @@ export function AlertCard({
               </span>
               <div className="min-w-0">
                 <p className="text-xs font-extrabold text-[#0b2545]">
-                  No se han encontrado vuelos por debajo de {targetPrice} € por ahora
+                  {targetPrice !== null
+                    ? `No se han encontrado vuelos por debajo de ${targetPrice} € por ahora`
+                    : "No se han encontrado vuelos disponibles por ahora"}
                 </p>
                 <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
                   Volveremos a lanzar la búsqueda automáticamente{" "}
@@ -920,7 +952,7 @@ export function AlertCard({
 
                 <div className="flex items-center gap-2">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                    OBJETIVO MÁX. (€)
+                    OBJETIVO MÁX. (€, OPCIONAL)
                   </label>
                   <div className="relative">
                     <input
@@ -929,7 +961,8 @@ export function AlertCard({
                       step="1"
                       value={editMaxPriceEur}
                       onChange={(e) => setEditMaxPriceEur(e.target.value)}
-                      className="w-28 pl-3 pr-7 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
+                      placeholder="Sin límite"
+                      className="w-32 pl-3 pr-7 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 placeholder:font-normal focus:outline-none focus:border-[#0096c7]"
                     />
                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
                       €
@@ -1012,7 +1045,11 @@ export function AlertCard({
                     isSelected ? "text-sky-200/80" : "text-slate-500"
                   }`}
                 >
-                  {hasDeal ? "vuelo encontrado" : "objetivo máx."}
+                  {hasDeal
+                    ? "vuelo encontrado"
+                    : targetPrice !== null
+                    ? "objetivo máx."
+                    : "sin resultados"}
                 </span>
                 <span
                   className={`text-xl font-extrabold block ${
@@ -1023,7 +1060,11 @@ export function AlertCard({
                       : "text-slate-500"
                   }`}
                 >
-                  {hasDeal ? `${tuple.price} €` : `≤ ${targetPrice} €`}
+                  {hasDeal
+                    ? `${tuple.price} €`
+                    : targetPrice !== null
+                    ? `≤ ${targetPrice} €`
+                    : "—"}
                 </span>
               </button>
             );
@@ -1044,7 +1085,9 @@ export function AlertCard({
             </p>
           </div>
           <span className="text-xs font-semibold text-[#0077b6] bg-sky-50 px-3 py-1 rounded-full border border-sky-200/60">
-            Umbral objetivo: {targetPrice} €
+            {targetPrice !== null
+              ? `Umbral objetivo: ${targetPrice} €`
+              : "Objetivo: más barato posible"}
           </span>
         </div>
 
@@ -1062,11 +1105,12 @@ export function AlertCard({
             >
               {dateTuples.map((tuple, idx) => {
                 const hasDeal = tuple.price !== null;
-                const val = tuple.price ?? targetPrice;
-                const heightPct = Math.max(
-                  35,
-                  Math.round((val / maxChartValue) * 100)
-                );
+                const val = tuple.price ?? targetPrice ?? 0;
+                const heightPct = hasDeal
+                  ? Math.max(35, Math.round((val / maxChartValue) * 100))
+                  : targetPrice !== null
+                  ? Math.max(35, Math.round((targetPrice / maxChartValue) * 100))
+                  : 35;
                 const isSelected = idx === selectedTupleIdx;
 
                 return (
@@ -1077,7 +1121,9 @@ export function AlertCard({
                     aria-label={`${tuple.fullPatternLabel}: ${
                       hasDeal
                         ? `vuelo encontrado por ${tuple.price} euros`
-                        : `sin oferta por debajo de ${targetPrice} euros`
+                        : targetPrice !== null
+                        ? `sin oferta por debajo de ${targetPrice} euros`
+                        : "sin vuelos disponibles en esta fecha"
                     }`}
                     onClick={() => setSelectedTupleIdx(idx)}
                     className="flex flex-col items-center justify-end h-full group cursor-pointer p-1 rounded-xl"
@@ -1099,7 +1145,11 @@ export function AlertCard({
                         hasDeal ? "text-[#0077b6]" : "text-slate-500"
                       }`}
                     >
-                      {hasDeal ? `${tuple.price}€` : `>${targetPrice}€`}
+                      {hasDeal
+                        ? `${tuple.price}€`
+                        : targetPrice !== null
+                        ? `>${targetPrice}€`
+                        : "—"}
                     </span>
                     <span className="text-[10px] font-bold uppercase text-[#0b2545] mt-0.5">
                       {tuple.subBarLabel}
@@ -1151,8 +1201,9 @@ export function AlertCard({
         {(!alert.matches || alert.matches.length === 0) && (
           <div className="mt-5 pt-4 border-t border-slate-100 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-2">
             <span>
-              Aún no se han detectado vuelos por debajo de {targetPrice} € en
-              las fechas de este rango.
+              {targetPrice !== null
+                ? `Aún no se han detectado vuelos por debajo de ${targetPrice} € en las fechas de este rango.`
+                : "Aún no se han detectado vuelos disponibles en las fechas de este rango."}
               {alert.status === "ACTIVE" && (
                 <>
                   {" "}

@@ -15,8 +15,9 @@ En lugar de acoplar las instrucciones del LLM en cadenas de texto estáticas den
   2. `departureDay` y `returnDay` (1 = Lunes ... 7 = Domingo; deduce también expresiones como *"finde"*, *"3 días"* ➔ Viernes a Domingo, o *"4 días"* ➔ Jueves a Domingo). En las respuestas textuales al usuario (`reply`) siempre muestra los nombres en español (`Lunes`..`Domingo`) y nunca los números.
   3. `adults` (número de pasajeros, por defecto `1`).
   4. `directOnly` (booleano obligatorio: `true` para solo vuelos directos / sin escalas, `false` para con escalas permitidas). Si el usuario no lo ha indicado, Vera le pregunta explícitamente si prefiere **vuelo directo o con escalas**.
-  5. `maxPriceEur` y `budgetType` (`"PER_PERSON"` | `"TOTAL"`):
-     - **Clarificación automática para múltiples pasajeros (`adults > 1`):** Si viajan 2 o más pasajeros y el usuario indica un presupuesto sin especificar si es por persona o total, Vera pregunta explícitamente si ese importe es **máximo por persona o máximo total** antes de continuar. Si es `"PER_PERSON"`, calcula automáticamente el presupuesto total multiplicando `rawMaxPriceEur * adults`.
+  5. `maxPriceEur` (opcional, `number | null`) y `budgetType` (`"PER_PERSON"` | `"TOTAL"`):
+     - Si el usuario no indica presupuesto máximo, Vera puede completar la alerta sin tope de precio (`maxPriceEur: null`, mostrado como *"Sin límite de precio"*).
+     - **Clarificación automática para múltiples pasajeros (`adults > 1`):** Si viajan 2 o más pasajeros y el usuario sí indica un presupuesto sin especificar si es por persona o total, Vera pregunta explícitamente si ese importe es **máximo por persona o máximo total** antes de continuar. Si es `"PER_PERSON"`, calcula automáticamente el presupuesto total multiplicando `rawMaxPriceEur * adults`.
   6. `startDate` y `endDate` (`YYYY-MM-DD`, con deducción automática de meses en lenguaje natural como *"en noviembre"*, *"este mes"*, *"el mes que viene"*).
 
 ### 2. `destination-recommender/SKILL.md` (`DESTINATION_RECOMMENDER` - Recomendador Inspiracional)

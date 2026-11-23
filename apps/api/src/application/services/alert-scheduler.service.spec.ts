@@ -128,6 +128,44 @@ describe('AlertSchedulerService', () => {
     );
   });
 
+  it('should enqueue maxPriceEur as null (not 0) when alert has no maximum price limit', async () => {
+    const futureStart = new Date();
+    futureStart.setUTCDate(futureStart.getUTCDate() + 10);
+    const futureEnd = new Date(futureStart);
+    futureEnd.setUTCDate(futureEnd.getUTCDate() + 14);
+
+    mockPrisma.alert.findUnique.mockResolvedValue({
+      id: 'alert-no-price-limit',
+      userId: 'user-1',
+      status: 'ACTIVE',
+      originIata: 'MAD',
+      destinationIata: 'LON',
+      departureDay: 1,
+      returnDay: 3,
+      adults: 1,
+      directOnly: false,
+      maxPriceEur: null,
+      startDate: futureStart,
+      endDate: futureEnd,
+      user: {
+        email: 'usuario@ejemplo.com',
+        telegramChatId: '12345',
+      },
+    });
+
+    const result = await scheduler.enqueueAlert('alert-no-price-limit');
+
+    expect(result).toBe(1);
+    expect(mockQueue.add).toHaveBeenCalledWith(
+      'search-flight',
+      expect.objectContaining({
+        alertId: 'alert-no-price-limit',
+        maxPriceEur: null,
+      }),
+      expect.any(Object),
+    );
+  });
+
   it('should track initial search lifecycle until markSearchCompleted is called', async () => {
     expect(await scheduler.isInitialSearchInProgress('new-alert-1', null)).toBe(false);
 

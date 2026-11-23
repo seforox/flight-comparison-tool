@@ -123,7 +123,31 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(result.activeSkill).toBe('DEFINED_SEARCH');
       expect(result.isComplete).toBe(false);
       expect(result.awaitingConfirmation).toBe(false);
-      expect(result.reply).toContain('presupuesto');
+      expect(result.reply).toContain('vuelo directo o con escalas');
+    });
+
+    it('should allow completing and creating an alert WITHOUT maxPriceEur (optional budget)', async () => {
+      const sessionId = 'session-no-budget';
+      const prompt =
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 1 persona entre el 2026-11-01 y el 2026-11-30';
+
+      const turn1 = await service.chat('user-1', prompt, sessionId);
+
+      expect(turn1.activeSkill).toBe('DEFINED_SEARCH');
+      expect(turn1.isComplete).toBe(true);
+      expect(turn1.awaitingConfirmation).toBe(true);
+      expect(turn1.parsedData?.maxPriceEur).toBeNull();
+      expect(turn1.reply).toContain('Sin límite de precio');
+
+      const turn2 = await service.chat('user-1', 'Sí, lánzala', sessionId);
+      expect(turn2.alertCreated).toBe(true);
+      expect(mockPrisma.alert.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          originIata: 'MAD',
+          destinationIata: 'LON',
+          maxPriceEur: null,
+        }),
+      });
     });
 
     it('should deduce startDate and endDate from natural language month expressions ("en noviembre de este año")', async () => {

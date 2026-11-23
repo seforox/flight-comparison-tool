@@ -279,5 +279,62 @@ describe('FlightSearchProcessorService', () => {
         data: { status: 'TRIGGERED' },
       });
     });
+
+    it('should accept the cheapest available flight regardless of price when maxPriceEur is null (optional price)', async () => {
+      const payload: FlightSearchJobPayload = {
+        alertId: 'alert-no-limit',
+        userId: 'user-123',
+        telegramChatId: 'chat-123',
+        originIata: 'MAD',
+        destinationIata: 'JFK',
+        adults: 1,
+        directOnly: true,
+        maxPriceEur: null,
+        dateTuples: [
+          { departureDate: '2026-11-02', returnDate: '2026-11-09' },
+        ],
+      };
+
+      mockFlightSearch.searchFlights.mockResolvedValueOnce([
+        {
+          departureDate: '2026-11-02',
+          returnDate: '2026-11-09',
+          foundPriceEur: 320,
+          airlineCode: 'Lufthansa',
+          isDirect: false,
+          stopsCount: 1,
+          bookingUrl: 'http://book.com/layover',
+        },
+        {
+          departureDate: '2026-11-02',
+          returnDate: '2026-11-09',
+          foundPriceEur: 495,
+          airlineCode: 'Iberia',
+          isDirect: true,
+          stopsCount: 0,
+          bookingUrl: 'http://book.com/direct',
+        },
+      ]);
+
+      await processor.processJob(payload);
+
+      // Respeta directOnly: true y selecciona el vuelo directo aunque cueste 495€
+      expect(mockPrisma.match.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.match.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          alertId: 'alert-no-limit',
+          foundPriceEur: 495,
+          airlineCode: 'Iberia',
+        }),
+      });
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith({
+        where: { id: 'alert-no-limit' },
+        data: { status: 'TRIGGERED' },
+      });
+      expect(mockNotification.sendNotification).toHaveBeenCalledTimes(1);
+      const sentMessage = mockNotification.sendNotification.mock.calls[0][1];
+      expect(sentMessage).toContain('Sin límite de precio');
+      expect(sentMessage).not.toContain('null EUR');
+    });
   });
 });

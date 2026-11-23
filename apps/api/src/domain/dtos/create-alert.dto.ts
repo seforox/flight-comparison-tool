@@ -164,9 +164,10 @@ export class CreateAlertDto {
   @IsBoolean()
   directOnly?: boolean;
 
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  maxPriceEur!: number;
+  maxPriceEur?: number | null;
 
   @IsDateString()
   startDate!: string;

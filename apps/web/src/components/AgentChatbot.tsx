@@ -118,7 +118,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         !res.awaitingConfirmation &&
         !res.alertCreated &&
         (((res.draftData?.adults ?? 1) > 1 &&
-          res.draftData?.maxPriceEur !== undefined &&
+          res.draftData?.maxPriceEur != null &&
           !res.draftData?.budgetType) ||
           /m[aá]ximo por persona o m[aá]ximo total|por persona o total/i.test(
             res.reply

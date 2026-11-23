@@ -43,7 +43,7 @@ const AgentChatOutputSchema = z.object({
       returnDay: z.number(),
       adults: z.number(),
       directOnly: z.boolean().optional(),
-      maxPriceEur: z.number(),
+      maxPriceEur: z.number().nullable().optional(),
       startDate: z.string(),
       endDate: z.string(),
     })

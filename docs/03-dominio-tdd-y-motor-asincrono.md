@@ -4,7 +4,7 @@
 Siguiendo las reglas de `AGENTS.md`, toda la lógica de negocio se construyó bajo el ciclo **Red-Green-Refactor** con Jest (`"types": ["jest", "node"]` en `tsconfig.json`):
 - **`FlightDateCalculatorService`:** Calcula todas las tuplas `(departureDate, returnDate)` dentro de un rango `[startDate, endDate]` según los días ISO de la semana (1 = Lunes ... 7 = Domingo), contemplando años bisiestos, cambios de año y vueltas en la semana siguiente.
 - **`AlertSchedulerService`:** Filtra fechas pasadas (usando `max(startDate, hoy)`), marca alertas expiradas como `COMPLETED`, gestiona la cancelación de trabajos en cola (`cancelAlertJobs`), marca avisos de completado (`markCompletionPrompt`) y encola trabajos en BullMQ incluyendo `adults` y `directOnly`.
-- **`FlightSearchProcessorService`:** Procesa las combinaciones de fechas de una alerta, filtra tanto por `maxPriceEur` como por preferencia de escalas (`directOnly`), guarda el mejor vuelo de cada fecha en la tabla `Match`, envía un único resumen a Telegram y cambia el estado a `TRIGGERED` si hubo coincidencias.
+- **`FlightSearchProcessorService`:** Procesa las combinaciones de fechas de una alerta, filtra por `maxPriceEur` (cuando se ha especificado) y por preferencia de escalas (`directOnly`), guarda el mejor vuelo de cada fecha en la tabla `Match`, envía un único resumen a Telegram y cambia el estado a `TRIGGERED` si hubo coincidencias.
 
 ## 2. Agrupación de Búsquedas por Alerta
 - **Problema inicial:** Encolar un trabajo independiente por cada semana de un mes provocaba que el usuario recibiera 4 mensajes separados en Telegram para una sola alerta.
