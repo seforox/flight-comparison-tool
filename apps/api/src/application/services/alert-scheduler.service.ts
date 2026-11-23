@@ -341,7 +341,7 @@ export class AlertSchedulerService {
       destinationIata: alert.destinationIata,
       adults: (alert as any).adults ?? 1,
       directOnly,
-      maxPriceEur: Number(alert.maxPriceEur),
+      maxPriceEur: alert.maxPriceEur != null ? Number(alert.maxPriceEur) : null,
       dateTuples: tuples.map(t => ({
         departureDate: t.departureDate.toISOString().split('T')[0],
         returnDate: t.returnDate.toISOString().split('T')[0],

@@ -29,3 +29,4 @@ Se mantiene tanto `schema.prisma` como la carpeta `prisma/migrations/` con el hi
 - `20261102172000_add_adults_to_alert`: Añade la columna `adults INT NOT NULL DEFAULT 1` a la tabla `Alert` para búsquedas por número de pasajeros.
 - `20261109170000_add_airports_table`: Crea la tabla `Airport` y sus índices de búsqueda rápida (`Airport_city_idx`, `Airport_country_idx`, `Airport_popularity_idx`).
 - `20261109172500_add_direct_only_to_alert`: Añade la columna `directOnly BOOLEAN NOT NULL DEFAULT false` a la tabla `Alert` para distinguir búsquedas de vuelos exclusivamente directos frente a vuelos con escalas.
+- `20261123130000_make_max_price_optional`: Hace nullable la columna `maxPriceEur` en `Alert` (`DROP NOT NULL`) para permitir alertas sin límite máximo de precio.

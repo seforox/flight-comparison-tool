@@ -15,7 +15,7 @@ export interface FlightSearchJobPayload {
   destinationIata: string;
   adults?: number;
   directOnly?: boolean;
-  maxPriceEur: number;
+  maxPriceEur?: number | null;
   dateTuples: FlightDateTuplePayload[];
 }
 
@@ -80,7 +80,7 @@ export class FlightSearchProcessorService {
       }
 
       const validMatches = results.filter(f => {
-        if (f.foundPriceEur > jobData.maxPriceEur) return false;
+        if (jobData.maxPriceEur != null && f.foundPriceEur > jobData.maxPriceEur) return false;
         if (jobData.directOnly && f.isDirect === false) return false;
         return true;
       });
@@ -132,8 +132,12 @@ export class FlightSearchProcessorService {
         });
 
         const paxLabel = adults === 1 ? '1 pasajero' : `${adults} pasajeros`;
+        const priceLabel =
+          jobData.maxPriceEur != null
+            ? `Máx: ${jobData.maxPriceEur} EUR`
+            : 'Sin límite de precio';
         const message = [
-          `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (${paxLabel} | Máx: ${jobData.maxPriceEur} EUR)`,
+          `✈️ ¡Vuelos encontrados para ${jobData.originIata} ➔ ${jobData.destinationIata}! (${paxLabel} | ${priceLabel})`,
           '',
           ...lines.join('\n\n').split('\n'),
         ].join('\n');

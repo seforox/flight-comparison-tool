@@ -37,7 +37,7 @@ export interface FlightAlert {
   lastCheckedAt?: string | null;
   nextSearchScheduleLabel?: string;
   nextSearchAt?: string | null;
-  maxPriceEur: string | number;
+  maxPriceEur: string | number | null;
   startDate: string;
   endDate: string;
   status: AlertStatus;
@@ -70,7 +70,7 @@ export interface AgentChatResponse {
     returnDay: number;
     adults: number;
     directOnly: boolean;
-    maxPriceEur: number;
+    maxPriceEur: number | null;
     startDate: string;
     endDate: string;
   };
@@ -81,7 +81,7 @@ export interface AgentChatResponse {
     returnDay?: number;
     adults?: number;
     directOnly?: boolean;
-    maxPriceEur?: number;
+    maxPriceEur?: number | null;
     rawMaxPriceEur?: number;
     budgetType?: 'PER_PERSON' | 'TOTAL';
     startDate?: string;
@@ -370,7 +370,7 @@ export const api = {
       returnDay: number;
       adults: number;
       directOnly?: boolean;
-      maxPriceEur: number;
+      maxPriceEur?: number | null;
       startDate: string;
       endDate: string;
     }) =>
@@ -387,7 +387,7 @@ export const api = {
         returnDay: number;
         adults: number;
         directOnly?: boolean;
-        maxPriceEur: number;
+        maxPriceEur?: number | null;
         startDate: string;
         endDate: string;
       },

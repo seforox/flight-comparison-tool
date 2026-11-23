@@ -741,7 +741,11 @@ export default function DashboardPage() {
                             <span>{getCityName(item.destinationIata)}</span>
                           </div>
                           <span className="text-xs font-extrabold text-[#0b2545] shrink-0">
-                            {item.isInitialSearching ? "…" : `${displayPrice} €`}
+                            {item.isInitialSearching
+                              ? "…"
+                              : displayPrice !== null
+                              ? `${displayPrice} €`
+                              : "Sin límite"}
                           </span>
                         </div>
 
@@ -842,9 +846,13 @@ export default function DashboardPage() {
               className="text-left cursor-pointer pr-2 flex-1"
             >
               <div className="text-xs font-extrabold text-[#0b2545]">
-                ¡Vuelo encontrado desde{" "}
-                {getBestPriceForAlert(featuredTriggeredAlert)} €! (
-                {getCityName(featuredTriggeredAlert.originIata)} →{" "}
+                {(() => {
+                  const toastPrice = getBestPriceForAlert(featuredTriggeredAlert);
+                  return toastPrice !== null
+                    ? `¡Vuelo encontrado desde ${toastPrice} €!`
+                    : "¡Vuelo encontrado!";
+                })()}{" "}
+                ({getCityName(featuredTriggeredAlert.originIata)} →{" "}
                 {getCityName(featuredTriggeredAlert.destinationIata)})
               </div>
               <div className="text-[11px] font-medium text-slate-600 mt-0.5">
@@ -1014,10 +1022,21 @@ export default function DashboardPage() {
                       Inicia el bot de alertas y pega tu ID abajo
                     </p>
                     <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                      Asegúrate de haber pulsado{" "}
-                      <strong>Iniciar (/start)</strong> en el bot de alertas de{" "}
-                      <strong>V Flights</strong> para darle permiso de enviarte
-                      mensajes, pega tu ID numérico abajo y guarda.
+                      Abre{" "}
+                      <a
+                        href="https://t.me/asistente_comparador_vuelos_bot"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-bold text-[#0077b6] underline hover:text-[#0b2545]"
+                      >
+                        @asistente_comparador_vuelos_bot ↗
+                      </a>{" "}
+                      y pulsa <strong>Iniciar</strong> (o envíale{" "}
+                      <code className="px-1.5 py-0.5 rounded bg-slate-100 text-[#0b2545] font-mono">
+                        /start
+                      </code>
+                      ) para darle permiso de enviarte mensajes, pega tu ID
+                      numérico abajo y guarda.
                     </p>
                   </div>
                 </li>

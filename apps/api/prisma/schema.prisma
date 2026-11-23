@@ -34,7 +34,7 @@ model Alert {
   returnDay       Int         // 1 = Lunes, ..., 7 = Domingo
   adults          Int         @default(1) // Número de pasajeros
   directOnly      Boolean     @default(false) // true = Solo vuelos directos, false = Con escalas permitidas
-  maxPriceEur     Decimal     @db.Decimal(10, 2)
+  maxPriceEur     Decimal?    @db.Decimal(10, 2) // Presupuesto máximo opcional (null = sin límite de precio)
   startDate       DateTime    // Inicio del rango de monitorización
   endDate         DateTime    // Fin del rango de monitorización
   status          AlertStatus @default(ACTIVE)

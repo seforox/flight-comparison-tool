@@ -30,7 +30,7 @@ export interface ParsedAlertDraft {
   returnDay?: number;
   adults?: number;
   directOnly?: boolean;
-  maxPriceEur?: number;
+  maxPriceEur?: number | null;
   rawMaxPriceEur?: number;
   budgetType?: BudgetType;
   startDate?: string;
@@ -54,7 +54,7 @@ export interface AgentParseResult {
     returnDay: number;
     adults: number;
     directOnly: boolean;
-    maxPriceEur: number;
+    maxPriceEur: number | null;
     startDate: string;
     endDate: string;
   };
@@ -410,7 +410,7 @@ export class AlertParserAgentService {
   async chat(userId: string, prompt: string, sessionId = `session-${userId}`): Promise<AgentParseResult> {
     const state: SessionState = this.sessions.get(sessionId) || {
       activeSkill: 'DEFINED_SEARCH',
-      draft: { adults: 1 },
+      draft: {},
       awaitingConfirmation: false,
       history: [],
     };
@@ -499,7 +499,9 @@ export class AlertParserAgentService {
         const depName = this.getDayLabel(fullData.departureDay);
         const retName = this.getDayLabel(fullData.returnDay);
         const flightTypeLabel = fullData.directOnly ? 'solo vuelos directos' : 'con escalas permitidas';
-        const reply = `🚀 ¡Perfecto! He creado y encolado tu alerta de ${fullData.originIata} a ${fullData.destinationIata} (salida los ${depName} y regreso los ${retName}, ${flightTypeLabel}, máx. ${fullData.maxPriceEur} EUR para ${fullData.adults} pasajero(s)). En cuanto encontremos vuelos te avisaremos por Telegram.`;
+        const budgetSummary =
+          fullData.maxPriceEur != null ? `máx. ${fullData.maxPriceEur} EUR` : 'más barato posible';
+        const reply = `🚀 ¡Perfecto! He creado y encolado tu alerta de ${fullData.originIata} a ${fullData.destinationIata} (salida los ${depName} y regreso los ${retName}, ${flightTypeLabel}, ${budgetSummary} para ${fullData.adults} pasajero(s)). En cuanto encontremos vuelos te avisaremos por Telegram.`;
         return {
           sessionId,
           activeSkill: 'DEFINED_SEARCH',
@@ -679,7 +681,7 @@ export class AlertParserAgentService {
       const adultsCount = state.draft.adults ?? 1;
       const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
       const budgetContext =
-        adultsCount > 1 && state.draft.maxPriceEur !== undefined
+        adultsCount > 1 && state.draft.maxPriceEur != null
           ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
           : '';
       const warningLine =
@@ -740,9 +742,11 @@ export class AlertParserAgentService {
         ? 'Solo vuelos directos'
         : 'Con escalas permitidas';
       const budgetText =
-        fullData.adults > 1
-          ? `${fullData.maxPriceEur} EUR en total (${Number((fullData.maxPriceEur / fullData.adults).toFixed(2))} EUR por persona)`
-          : `${fullData.maxPriceEur} EUR`;
+        fullData.maxPriceEur == null
+          ? 'Más barato posible'
+          : fullData.adults > 1
+            ? `${fullData.maxPriceEur} EUR en total (${Number((fullData.maxPriceEur / fullData.adults).toFixed(2))} EUR por persona)`
+            : `${fullData.maxPriceEur} EUR`;
       const reply = [
         `✅ Ya tengo todos los datos para tu alerta:`,
         `- Ruta: ${fullData.originIata} ➔ ${fullData.destinationIata}`,
@@ -837,7 +841,8 @@ IMPORTANTE:
 - En DESTINATION_RECOMMENDER, si "originIata" NO está definido ni en el borrador ni en el mensaje actual del usuario, NO devuelvas recomendaciones ("recommendations": null) y pregúntale primero desde qué ciudad o aeropuerto vas a salir.
 - NUNCA permitas que "originIata" y "destinationIata" sean el mismo aeropuerto (ej. Madrid a Madrid / MAD a MAD), ni recomiendes el mismo aeropuerto de origen. Si ocurre, deja "destinationIata": null y explica claramente que el origen y el destino no pueden ser el mismo aeropuerto.
 - NUNCA permitas búsquedas de ida y vuelta para el mismo día ("startDate" === "endDate", ej. 23/11/2026 y volver el 23/11/2026) ni "startDate" > "endDate". Si ocurre, deja "startDate": null y "endDate": null y explica claramente que no se permiten búsquedas en el mismo día.
-- Tanto en DESTINATION_RECOMMENDER como en DEFINED_SEARCH, si hay más de 1 pasajero ("adults" > 1) y se ha indicado un presupuesto máximo ("maxPriceEur"), pero no se ha aclarado si es por persona o total ("budgetType" no definido), DEBES preguntar explícitamente si ese presupuesto es **máximo por persona o máximo total** ("budgetType": "PER_PERSON" | "TOTAL" | null).
+- El número de pasajeros ("adults") es OBLIGATORIO (entero del 1 al 9, o null si el usuario aún no lo ha indicado). NUNCA asumas 1 por defecto: si "adults" aún no está definido en el borrador ni en el mensaje actual, DEBES preguntarle explícitamente cuántos pasajeros viajan.
+- El presupuesto máximo ("maxPriceEur") es OPCIONAL (null si el usuario no fija un tope de precio, lo que equivale a buscar "Más barato posible"). Tanto en DESTINATION_RECOMMENDER como en DEFINED_SEARCH, si hay más de 1 pasajero ("adults" > 1) y el usuario SÍ ha indicado un presupuesto máximo ("maxPriceEur"), pero no se ha aclarado si es por persona o total ("budgetType" no definido), DEBES preguntar explícitamente si ese presupuesto es **máximo por persona o máximo total** ("budgetType": "PER_PERSON" | "TOTAL" | null).
 - En el campo "reply" dirigido al usuario NUNCA muestres los días de la semana como números (1 al 7); usa siempre sus nombres en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo).
 - En "draft", "departureDay" y "returnDay" deben ser enteros del 1 (Lunes) al 7 (Domingo), "startDate"/"endDate" cadenas "YYYY-MM-DD", y "directOnly" booleano (true = solo vuelo directo / sin escalas, false = con escalas permitidas, o null si aún no lo ha indicado).
 - Si "directOnly" aún no está definido en el borrador ni en el mensaje actual, DEBES preguntarle explícitamente al usuario si prefiere **vuelo directo o con escalas**.
@@ -897,6 +902,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             : parsed.activeSkill || 'DEFINED_SEARCH';
 
         const prevRawPrice = state.draft.rawMaxPriceEur;
+        const prevAdults = state.draft.adults;
         // Combinar tanto la extracción determinista local (fechas de meses, duración, ciudades) como la de Gemini
         let validationErrors = this.extractEntitiesIntoDraft(
           prompt,
@@ -904,6 +910,10 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           state.activeSkill === 'DESTINATION_RECOMMENDER',
         );
         const hasNewPriceInPrompt = /(\d+(?:[.,]\d+)?)\s*(?:euros|eur|€)/i.test(prompt);
+        const hasPassengersInPrompt =
+          /(\d+)\s*(?:personas?|pasajeros?|adultos?|pax|billetes?|viajeros?)|\b(?:somos|para)\s+(?:\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b|\b(?:viajo\s+solo|voy\s+solo|solo\s+yo|en\s+pareja|una\s+persona|un\s+pasajero|un\s+adulto)\b|^\s*[1-9]\s*$/i.test(
+            prompt.trim(),
+          );
 
         if (parsed.draft && typeof parsed.draft === 'object') {
           for (const [k, v] of Object.entries(parsed.draft)) {
@@ -911,10 +921,13 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
               if (k === 'maxPriceEur' && !hasNewPriceInPrompt && prevRawPrice !== undefined) {
                 continue;
               }
+              if (k === 'adults' && !hasPassengersInPrompt && prevAdults === undefined) {
+                continue;
+              }
               (state.draft as any)[k] = v;
             }
           }
-          if (hasNewPriceInPrompt && state.draft.rawMaxPriceEur === undefined && state.draft.maxPriceEur !== undefined) {
+          if (hasNewPriceInPrompt && state.draft.rawMaxPriceEur === undefined && state.draft.maxPriceEur != null) {
             state.draft.rawMaxPriceEur = Number(state.draft.maxPriceEur);
           }
           this.normalizeDraftFields(state.draft);
@@ -1031,7 +1044,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           const adultsCount = state.draft.adults ?? 1;
           const missingAfterRec = this.getMissingFieldsAfterRecommendation(state.draft);
           const budgetContext =
-            adultsCount > 1 && state.draft.maxPriceEur !== undefined
+            adultsCount > 1 && state.draft.maxPriceEur != null
               ? ` (presupuesto aplicado: máx. ${state.draft.maxPriceEur} EUR total / ${Number((state.draft.maxPriceEur / adultsCount).toFixed(2))} EUR por persona)`
               : '';
           const warningLine =
@@ -1081,9 +1094,11 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             ? 'Solo vuelos directos'
             : 'Con escalas permitidas';
           const budgetText =
-            fullData.adults > 1
-              ? `${fullData.maxPriceEur} EUR en total (${Number((fullData.maxPriceEur / fullData.adults).toFixed(2))} EUR por persona)`
-              : `${fullData.maxPriceEur} EUR`;
+            fullData.maxPriceEur == null
+              ? 'Más barato posible'
+              : fullData.adults > 1
+                ? `${fullData.maxPriceEur} EUR en total (${Number((fullData.maxPriceEur / fullData.adults).toFixed(2))} EUR por persona)`
+                : `${fullData.maxPriceEur} EUR`;
           const confirmReply = [
             `✅ Ya tengo todos los datos para tu alerta:`,
             `- Ruta: ${fullData.originIata} ➔ ${fullData.destinationIata}`,
@@ -1113,6 +1128,13 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         ) {
           const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
           sanitizedReply = `${sanitizedReply.trim()} ¿El presupuesto de ${rawBudget} EUR para los ${state.draft.adults} pasajeros es máximo por persona o máximo total?`;
+        }
+        if (
+          state.activeSkill === 'DEFINED_SEARCH' &&
+          !state.draft.adults &&
+          !/pasajero|persona|adulto|cu[aá]ntos/i.test(sanitizedReply)
+        ) {
+          sanitizedReply = `${sanitizedReply.trim()} ¿Para cuántos pasajeros es la búsqueda?`;
         }
         if (
           state.activeSkill === 'DEFINED_SEARCH' &&
@@ -1631,9 +1653,30 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     }
 
     // 4. Número de pasajeros
-    const paxMatch = lower.match(/(\d+)\s*(?:personas|pasajeros|adultos|pax)/);
+    const paxMatch =
+      lower.match(/(\d+)\s*(?:personas?|pasajeros?|adultos?|pax|billetes?|viajeros?)/) ||
+      lower.match(/\b(?:somos|para)\s+(\d+)(?!\s*(?:euros?|eur|€|d[ií]as?|noches?|semanas?|mes(?:es)?))/);
     if (paxMatch) {
-      state.draft.adults = parseInt(paxMatch[1], 10);
+      const parsedPax = parseInt(paxMatch[1], 10);
+      if (parsedPax >= 1 && parsedPax <= 9) {
+        state.draft.adults = parsedPax;
+      }
+    } else if (
+      /\b(viajo\s+solo|voy\s+solo|solo\s+yo|una\s+persona|un\s+pasajero|un\s+adulto|para\s+uno|para\s+una)\b/.test(
+        lower,
+      )
+    ) {
+      state.draft.adults = 1;
+    } else if (
+      /\b(dos\s+(?:personas|pasajeros|adultos)|en\s+pareja|somos\s+dos|para\s+dos)\b/.test(lower)
+    ) {
+      state.draft.adults = 2;
+    } else if (/\b(tres\s+(?:personas|pasajeros|adultos)|somos\s+tres|para\s+tres)\b/.test(lower)) {
+      state.draft.adults = 3;
+    } else if (/\b(cuatro\s+(?:personas|pasajeros|adultos)|somos\s+cuatro|para\s+cuatro)\b/.test(lower)) {
+      state.draft.adults = 4;
+    } else if (!state.draft.adults && /^\s*([1-9])\s*$/.test(lower)) {
+      state.draft.adults = parseInt(lower.trim(), 10);
     }
 
     // 4.5. Preferencia de vuelo directo o con escalas
@@ -1651,12 +1694,20 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       state.draft.directOnly = true;
     }
 
-    // 5. Presupuesto máximo y tipo de presupuesto (por persona vs total)
+    // 5. Presupuesto máximo (opcional) y tipo de presupuesto (por persona vs total)
+    const wantsNoPriceLimit =
+      /\b(sin\s+l[ií]mite(?:\s+de\s+precio)?|sin\s+presupuesto(?:\s+m[aá]ximo)?|sin\s+tope(?:\s+de\s+precio)?|cualquier\s+precio|da\s+igual\s+el\s+precio)\b/i.test(
+        lower,
+      );
     const priceMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*(?:euros|eur|€)/);
     if (priceMatch) {
       const parsedPrice = parseFloat(priceMatch[1].replace(',', '.'));
       state.draft.rawMaxPriceEur = parsedPrice;
       state.draft.maxPriceEur = parsedPrice;
+    } else if (wantsNoPriceLimit) {
+      state.draft.rawMaxPriceEur = undefined;
+      state.draft.maxPriceEur = undefined;
+      state.draft.budgetType = undefined;
     }
 
     if (
@@ -1778,16 +1829,16 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
   private needsBudgetTypeClarification(draft: ParsedAlertDraft): boolean {
     return Boolean(
       (draft.adults ?? 1) > 1 &&
-        draft.maxPriceEur !== undefined &&
+        draft.maxPriceEur != null &&
         !draft.budgetType,
     );
   }
 
   private recalculateMaxPriceEur(draft: ParsedAlertDraft): void {
-    if (draft.rawMaxPriceEur === undefined && draft.maxPriceEur !== undefined) {
+    if (draft.rawMaxPriceEur == null && draft.maxPriceEur != null) {
       draft.rawMaxPriceEur = Number(draft.maxPriceEur);
     }
-    if (draft.rawMaxPriceEur === undefined) return;
+    if (draft.rawMaxPriceEur == null) return;
     const adults = draft.adults ?? 1;
     if (adults > 1 && draft.budgetType === 'PER_PERSON') {
       draft.maxPriceEur = Number((draft.rawMaxPriceEur * adults).toFixed(2));
@@ -1802,9 +1853,11 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         draft.destinationIata &&
         draft.departureDay &&
         draft.returnDay &&
+        draft.adults !== undefined &&
+        draft.adults !== null &&
+        draft.adults >= 1 &&
         draft.directOnly !== undefined &&
         draft.directOnly !== null &&
-        draft.maxPriceEur !== undefined &&
         !this.needsBudgetTypeClarification(draft) &&
         draft.startDate &&
         draft.endDate &&
@@ -1853,7 +1906,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         draft.budgetType = undefined;
       }
     }
-    if (draft.maxPriceEur !== undefined) {
+    if (draft.maxPriceEur != null) {
       draft.maxPriceEur = Number(draft.maxPriceEur);
     }
     this.recalculateMaxPriceEur(draft);
@@ -1867,7 +1920,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       returnDay: draft.returnDay!,
       adults: draft.adults ?? 1,
       directOnly: Boolean(draft.directOnly),
-      maxPriceEur: draft.maxPriceEur!,
+      maxPriceEur: draft.maxPriceEur ?? null,
       startDate: draft.startDate!,
       endDate: draft.endDate!,
     };
@@ -1884,13 +1937,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       );
     }
     if (!draft.startDate || !draft.endDate) missing.push('el rango de fechas o mes');
-    if (draft.maxPriceEur === undefined) {
-      missing.push(
-        (draft.adults ?? 1) > 1
-          ? 'tu presupuesto máximo en euros (indicando si es máximo por persona o máximo total)'
-          : 'tu presupuesto máximo en euros',
-      );
-    } else if (this.needsBudgetTypeClarification(draft)) {
+    if (!draft.adults) missing.push('el número de pasajeros');
+    if (this.needsBudgetTypeClarification(draft)) {
       missing.push(
         `si el presupuesto máximo de ${draft.rawMaxPriceEur ?? draft.maxPriceEur} EUR es máximo por persona o máximo total`,
       );
@@ -1904,13 +1952,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (!draft.originIata) missing.push('aeropuerto de origen');
     if (!draft.destinationIata) missing.push('destino');
     if (!draft.departureDay || !draft.returnDay) missing.push('día de la semana de salida y de regreso');
-    if (draft.maxPriceEur === undefined) {
-      missing.push(
-        (draft.adults ?? 1) > 1
-          ? 'presupuesto máximo en euros (indicando si es máximo por persona o máximo total)'
-          : 'presupuesto máximo en euros',
-      );
-    } else if (this.needsBudgetTypeClarification(draft)) {
+    if (!draft.adults) missing.push('número de pasajeros');
+    if (this.needsBudgetTypeClarification(draft)) {
       missing.push(
         `si el presupuesto máximo de ${draft.rawMaxPriceEur ?? draft.maxPriceEur} EUR para los ${draft.adults} pasajeros es máximo por persona o máximo total`,
       );

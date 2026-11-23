@@ -119,6 +119,22 @@ describe('AlertsController (Validación de búsquedas)', () => {
       );
       expect(mockScheduler.enqueueAlert).toHaveBeenCalledWith('alert-1');
     });
+
+    it('should allow creating an alert without maxPriceEur (optional / null)', async () => {
+      const dto = buildValidDto({ maxPriceEur: undefined });
+
+      const created = await controller.create(mockReq, dto);
+
+      expect(created.id).toBe('alert-1');
+      expect(mockPrisma.alert.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            maxPriceEur: null,
+          }),
+        }),
+      );
+      expect(mockScheduler.enqueueAlert).toHaveBeenCalledWith('alert-1');
+    });
   });
 
   describe('PATCH /alerts/:id (update)', () => {
@@ -138,6 +154,20 @@ describe('AlertsController (Validación de búsquedas)', () => {
 
       await expect(controller.update(mockReq, 'alert-1', dto)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.alert.update).not.toHaveBeenCalled();
+    });
+
+    it('should allow clearing maxPriceEur to null on update', async () => {
+      const dto = buildValidDto({ maxPriceEur: null });
+
+      await controller.update(mockReq, 'alert-1', dto);
+
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            maxPriceEur: null,
+          }),
+        }),
+      );
     });
   });
 
@@ -184,6 +214,32 @@ describe('AlertsController (Validación de búsquedas)', () => {
         data: { status: 'TRIGGERED' },
       });
     });
+
+    it('should reconcile an ACTIVE alert with maxPriceEur = null and found matches to TRIGGERED', async () => {
+      mockPrisma.alert.findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'alert-no-cap',
+          status: 'ACTIVE',
+          maxPriceEur: null,
+          matches: [{ id: 'm1', foundPriceEur: 499 }],
+        },
+      ]);
+      mockScheduler.hasCompletionPrompt = jest.fn().mockReturnValue(false);
+      mockScheduler.isInitialSearchInProgress = jest.fn().mockResolvedValue(false);
+      mockScheduler.getSearchScheduleInfo = jest.fn().mockReturnValue({
+        cronExpression: '0 */6 * * *',
+        intervalLabel: 'cada 6 horas',
+        nextSearchAt: '2026-11-23T00:00:00.000Z',
+      });
+
+      const alerts: any = await controller.findAll(mockReq);
+
+      expect(alerts[0].status).toBe('TRIGGERED');
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith({
+        where: { id: 'alert-no-cap' },
+        data: { status: 'TRIGGERED' },
+      });
+    });
   });
 
   describe('CreateAlertDto (class-validator / ValidationPipe)', () => {
@@ -211,6 +267,14 @@ describe('AlertsController (Validación de búsquedas)', () => {
       const dto = plainToInstance(CreateAlertDto, buildValidDto());
       const errors = await validate(dto);
       expect(errors).toHaveLength(0);
+    });
+
+    it('should pass DTO validation when maxPriceEur is omitted or null', async () => {
+      const dtoOmitted = plainToInstance(CreateAlertDto, buildValidDto({ maxPriceEur: undefined }));
+      expect(await validate(dtoOmitted)).toHaveLength(0);
+
+      const dtoNull = plainToInstance(CreateAlertDto, buildValidDto({ maxPriceEur: null }));
+      expect(await validate(dtoNull)).toHaveLength(0);
     });
   });
 });

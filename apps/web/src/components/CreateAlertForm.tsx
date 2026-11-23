@@ -160,10 +160,14 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
       setError("Por favor, elige si prefieres solo vuelo directo o con escalas.");
       return;
     }
-    const parsedBudget = Number(maxPriceEur);
-    if (!parsedBudget || parsedBudget <= 0) {
-      setError("Introduce un precio objetivo válido en euros (mayor que 0).");
-      return;
+    const trimmedBudget = maxPriceEur.trim();
+    let parsedBudget: number | null = null;
+    if (trimmedBudget !== "") {
+      parsedBudget = Number(trimmedBudget);
+      if (!Number.isFinite(parsedBudget) || parsedBudget <= 0) {
+        setError("Introduce un precio objetivo válido en euros (mayor que 0) o déjalo vacío.");
+        return;
+      }
     }
 
     const depText =
@@ -416,7 +420,10 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
               htmlFor="field-max-price"
               className="text-xs font-semibold text-[#0b2545]"
             >
-              Precio objetivo máx.
+              Precio máx.{" "}
+              <span className="text-[11px] font-normal text-slate-500">
+                (opcional)
+              </span>
             </label>
             <div className="relative flex items-center">
               <input
@@ -426,8 +433,8 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
                 step="1"
                 value={maxPriceEur}
                 onChange={(e) => setMaxPriceEur(e.target.value)}
-                placeholder="Ej. 100"
-                className="w-24 sm:w-28 pl-3 pr-7 py-2 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 placeholder:font-normal focus:outline-none focus:border-[#0096c7]"
+                placeholder="Sin límite"
+                className="w-28 sm:w-32 pl-3 pr-7 py-2 rounded-xl bg-[#f8fafc] border border-slate-200 text-xs font-bold text-[#0b2545] placeholder-slate-400 placeholder:font-normal focus:outline-none focus:border-[#0096c7]"
               />
               <span
                 aria-hidden="true"
