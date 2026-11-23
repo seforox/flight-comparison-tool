@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { FlightSearchProvider, FlightSearchResult } from '../../domain/interfaces/flight-search.provider';
 import { NotificationProvider } from '../../domain/interfaces/notification.provider';
 
@@ -19,6 +20,8 @@ export interface FlightSearchJobPayload {
 }
 
 export class FlightSearchProcessorService {
+  private readonly logger = new Logger(FlightSearchProcessorService.name);
+
   constructor(
     private readonly flightSearchProvider: FlightSearchProvider,
     private readonly notificationProvider: NotificationProvider,
@@ -49,14 +52,28 @@ export class FlightSearchProcessorService {
     const adults = jobData.adults ?? 1;
 
     for (const tuple of jobData.dateTuples) {
-      const results = await this.flightSearchProvider.searchFlights({
-        originIata: jobData.originIata,
-        destinationIata: jobData.destinationIata,
-        departureDate: tuple.departureDate,
-        returnDate: tuple.returnDate,
-        adults,
-        ...(jobData.directOnly !== undefined ? { directOnly: jobData.directOnly } : {}),
-      });
+      let results: FlightSearchResult[] = [];
+      try {
+        results = await this.flightSearchProvider.searchFlights({
+          originIata: jobData.originIata,
+          destinationIata: jobData.destinationIata,
+          departureDate: tuple.departureDate,
+          returnDate: tuple.returnDate,
+          adults,
+          ...(jobData.directOnly !== undefined ? { directOnly: jobData.directOnly } : {}),
+        });
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        this.logger.warn(
+          `Error buscando vuelos para alerta ${jobData.alertId} (${tuple.departureDate} -> ${tuple.returnDate}): ${message}`,
+        );
+        // Si alcanzamos límite de cuota (HTTP 429), detenemos nuevas consultas en este ciclo
+        // pero conservamos los vuelos ya encontrados para pasar la alerta a TRIGGERED y notificar.
+        if (message.includes('429') || error?.response?.status === 429) {
+          break;
+        }
+        continue;
+      }
 
       if (!results || results.length === 0) {
         continue;
@@ -88,6 +105,13 @@ export class FlightSearchProcessorService {
     }
 
     if (foundDeals.length > 0) {
+      // Pasar a TRIGGERED siempre que se haya encontrado al menos un resultado válido,
+      // antes de notificar por Telegram para que un error de envío nunca impida cambiar el estado.
+      await this.prismaService.alert.update({
+        where: { id: jobData.alertId },
+        data: { status: 'TRIGGERED' },
+      });
+
       if (jobData.telegramChatId) {
         const lines = foundDeals.map(deal => {
           const airline = deal.airlineCode || 'Desconocida';
@@ -114,14 +138,14 @@ export class FlightSearchProcessorService {
           ...lines.join('\n\n').split('\n'),
         ].join('\n');
 
-        await this.notificationProvider.sendNotification(jobData.telegramChatId, message);
+        try {
+          await this.notificationProvider.sendNotification(jobData.telegramChatId, message);
+        } catch (error: any) {
+          this.logger.error(
+            `Error enviando notificación de Telegram para alerta ${jobData.alertId} (alerta ya marcada como TRIGGERED): ${error?.message || error}`,
+          );
+        }
       }
-
-      // Solo pasar a TRIGGERED si se ha encontrado al menos un resultado válido
-      await this.prismaService.alert.update({
-        where: { id: jobData.alertId },
-        data: { status: 'TRIGGERED' },
-      });
     }
   }
 }

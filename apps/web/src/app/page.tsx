@@ -264,19 +264,19 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Pestañas de navegación */}
+            {/* Pestañas de navegación principales destacadas */}
             <nav
               aria-label="Navegación principal del panel"
-              className="hidden md:flex items-center gap-2"
+              className="hidden md:flex items-center gap-1.5 p-1.5 rounded-full bg-[#eef4fa] border border-sky-200/80 shadow-inner"
             >
               <button
                 type="button"
                 aria-current={navTab === "comparador" ? "page" : undefined}
                 onClick={() => setNavTab("comparador")}
-                className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition cursor-pointer ${
+                className={`px-5 py-2.5 rounded-full text-sm lg:text-[15px] font-bold flex items-center gap-2 transition-all cursor-pointer ${
                   navTab === "comparador"
-                    ? "bg-[#0e2a47] text-white shadow-xs"
-                    : "text-slate-600 hover:bg-slate-100"
+                    ? "bg-gradient-to-r from-[#0b2545] via-[#0e3968] to-[#0077b6] text-white shadow-md shadow-[#0b2545]/25 ring-1 ring-cyan-300/30"
+                    : "text-[#0b2545] bg-white/80 hover:bg-white hover:text-[#0077b6] shadow-2xs"
                 }`}
               >
                 <span aria-hidden="true">🛫</span>
@@ -292,15 +292,21 @@ export default function DashboardPage() {
                     behavior: "smooth",
                   });
                 }}
-                className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition cursor-pointer ${
+                className={`px-5 py-2.5 rounded-full text-sm lg:text-[15px] font-bold flex items-center gap-2 transition-all cursor-pointer ${
                   navTab === "alertas"
-                    ? "bg-[#0e2a47] text-white shadow-xs"
-                    : "text-slate-600 hover:bg-slate-100"
+                    ? "bg-gradient-to-r from-[#0b2545] via-[#0e3968] to-[#0077b6] text-white shadow-md shadow-[#0b2545]/25 ring-1 ring-cyan-300/30"
+                    : "text-[#0b2545] bg-white/80 hover:bg-white hover:text-[#0077b6] shadow-2xs"
                 }`}
               >
                 <span aria-hidden="true">🔔</span>
                 <span>Mis alertas</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-[#00c4e0] text-[#07223b] font-extrabold text-[10px] leading-none">
+                <span
+                  className={`px-2 py-0.5 rounded-full font-extrabold text-xs leading-none ${
+                    navTab === "alertas"
+                      ? "bg-[#18c1f0] text-[#07223b]"
+                      : "bg-[#0e3968] text-white"
+                  }`}
+                >
                   {activeOrTriggeredCount}
                 </span>
               </button>
@@ -309,7 +315,7 @@ export default function DashboardPage() {
 
           {/* Derecha: Estado de alertas activas + Telegram + Salir */}
           <div className="flex items-center gap-2">
-            <div className="hidden lg:inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-semibold text-[#0b2545] shadow-2xs">
+            <div className="hidden lg:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-200 text-sm font-semibold text-[#0b2545] shadow-2xs">
               <span aria-hidden="true" className="w-2 h-2 rounded-full bg-[#00b4d8]" />
               <span>{activeOrTriggeredCount} alertas activas</span>
             </div>
@@ -322,7 +328,7 @@ export default function DashboardPage() {
                   ? `Configurar Telegram (actualmente vinculado: ${user.telegramChatId})`
                   : "Vincular cuenta de Telegram para recibir alertas"
               }
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 transition cursor-pointer ${
+              className={`px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold border flex items-center gap-1.5 transition cursor-pointer ${
                 user?.telegramChatId
                   ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
                   : "bg-sky-50 border-sky-200 text-[#0077b6] hover:bg-sky-100"
@@ -338,7 +344,7 @@ export default function DashboardPage() {
               type="button"
               onClick={handleLogout}
               aria-label={`Cerrar sesión (${user?.email || ""})`}
-              className="px-3 py-1.5 rounded-full bg-slate-100 hover:bg-rose-50 text-xs font-semibold text-slate-700 hover:text-rose-600 transition cursor-pointer"
+              className="px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-slate-100 hover:bg-rose-50 text-xs sm:text-sm font-semibold text-slate-700 hover:text-rose-600 transition cursor-pointer"
             >
               Salir
             </button>
@@ -347,16 +353,16 @@ export default function DashboardPage() {
           {/* Barra de pestañas visible en móvil (<768px) */}
           <nav
             aria-label="Navegación móvil"
-            className="flex md:hidden w-full items-center gap-2 pt-2 border-t border-slate-100"
+            className="flex md:hidden w-full items-center gap-1.5 p-1.5 mt-1 rounded-full bg-[#eef4fa] border border-sky-200/80 shadow-inner"
           >
             <button
               type="button"
               aria-current={navTab === "comparador" ? "page" : undefined}
               onClick={() => setNavTab("comparador")}
-              className={`flex-1 justify-center px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              className={`flex-1 justify-center px-3.5 py-2 rounded-full text-sm font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 navTab === "comparador"
-                  ? "bg-[#0e2a47] text-white"
-                  : "bg-slate-100 text-slate-600"
+                  ? "bg-gradient-to-r from-[#0b2545] via-[#0e3968] to-[#0077b6] text-white shadow-sm"
+                  : "bg-white/80 text-[#0b2545]"
               }`}
             >
               <span aria-hidden="true">🛫</span>
@@ -372,10 +378,10 @@ export default function DashboardPage() {
                   behavior: "smooth",
                 });
               }}
-              className={`flex-1 justify-center px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              className={`flex-1 justify-center px-3.5 py-2 rounded-full text-sm font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 navTab === "alertas"
-                  ? "bg-[#0e2a47] text-white"
-                  : "bg-slate-100 text-slate-600"
+                  ? "bg-gradient-to-r from-[#0b2545] via-[#0e3968] to-[#0077b6] text-white shadow-sm"
+                  : "bg-white/80 text-[#0b2545]"
               }`}
             >
               <span aria-hidden="true">🔔</span>

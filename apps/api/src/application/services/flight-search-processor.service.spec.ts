@@ -190,5 +190,94 @@ describe('FlightSearchProcessorService', () => {
       expect(mockPrisma.match.create).not.toHaveBeenCalled();
       expect(mockNotification.sendNotification).not.toHaveBeenCalled();
     });
+
+    it('EDGE CASE: Should STILL mark alert as TRIGGERED and notify if later date tuple fails (e.g. HTTP 429) after finding at least one flight', async () => {
+      const payload: FlightSearchJobPayload = {
+        alertId: 'alert-tokio',
+        userId: 'user-123',
+        telegramChatId: 'chat-123',
+        originIata: 'MAD',
+        destinationIata: 'NRT',
+        adults: 3,
+        maxPriceEur: 3000,
+        dateTuples: [
+          { departureDate: '2026-10-02', returnDate: '2026-10-05' },
+          { departureDate: '2026-10-09', returnDate: '2026-10-12' },
+          { departureDate: '2026-10-16', returnDate: '2026-10-19' },
+          { departureDate: '2026-10-23', returnDate: '2026-10-26' },
+        ],
+      };
+
+      mockFlightSearch.searchFlights
+        .mockResolvedValueOnce([
+          {
+            departureDate: '2026-10-02',
+            returnDate: '2026-10-05',
+            foundPriceEur: 2814,
+            airlineCode: 'JAL',
+            isDirect: false,
+            stopsCount: 1,
+            bookingUrl: 'http://book.com/t1',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            departureDate: '2026-10-09',
+            returnDate: '2026-10-12',
+            foundPriceEur: 2814,
+            airlineCode: 'JAL',
+            isDirect: false,
+            stopsCount: 1,
+            bookingUrl: 'http://book.com/t2',
+          },
+        ])
+        .mockRejectedValueOnce(new Error('HTTP 429 Too Many Requests'));
+
+      await processor.processJob(payload);
+
+      // Debe haberse detenido tras el 429 (3 llamadas, no 4)
+      expect(mockFlightSearch.searchFlights).toHaveBeenCalledTimes(3);
+      expect(mockPrisma.match.create).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith({
+        where: { id: 'alert-tokio' },
+        data: { status: 'TRIGGERED' },
+      });
+      expect(mockNotification.sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it('EDGE CASE: Should STILL keep alert as TRIGGERED even if Telegram notification throws an error', async () => {
+      const payload: FlightSearchJobPayload = {
+        alertId: 'alert-tg-fail',
+        userId: 'user-123',
+        telegramChatId: 'bad-chat',
+        originIata: 'MAD',
+        destinationIata: 'LON',
+        maxPriceEur: 200,
+        dateTuples: [
+          { departureDate: '2026-11-02', returnDate: '2026-11-04' },
+        ],
+      };
+
+      mockFlightSearch.searchFlights.mockResolvedValueOnce([
+        {
+          departureDate: '2026-11-02',
+          returnDate: '2026-11-04',
+          foundPriceEur: 114,
+          airlineCode: 'Ryanair',
+          isDirect: true,
+          stopsCount: 0,
+          bookingUrl: 'http://book.com/lon',
+        },
+      ]);
+      mockNotification.sendNotification.mockRejectedValueOnce(new Error('400: Bad Request: chat not found'));
+
+      await expect(processor.processJob(payload)).resolves.toBeUndefined();
+
+      expect(mockPrisma.match.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith({
+        where: { id: 'alert-tg-fail' },
+        data: { status: 'TRIGGERED' },
+      });
+    });
   });
 });

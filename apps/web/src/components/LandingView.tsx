@@ -64,7 +64,7 @@ export function LandingView() {
 
             <nav
               aria-label="Secciones de la página de inicio"
-              className="hidden md:flex items-center gap-6 text-xs font-semibold text-slate-600"
+              className="hidden md:flex items-center gap-7 text-sm lg:text-base font-semibold text-slate-600"
             >
               <a
                 href="#escapadas"
@@ -91,7 +91,7 @@ export function LandingView() {
           <div className="flex items-center">
             <Link
               href="/login"
-              className="px-4 sm:px-5 py-2 rounded-full bg-gradient-to-r from-[#0e3968] via-[#06689f] to-[#00b4d8] hover:opacity-95 text-white text-xs font-bold shadow-md shadow-cyan-500/20 transition"
+              className="px-5 sm:px-6 py-2.5 rounded-full bg-gradient-to-r from-[#0e3968] via-[#06689f] to-[#00b4d8] hover:opacity-95 text-white text-sm font-bold shadow-md shadow-cyan-500/20 transition"
             >
               Iniciar sesión
             </Link>
