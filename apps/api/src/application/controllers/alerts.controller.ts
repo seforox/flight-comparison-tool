@@ -147,6 +147,25 @@ export class AlertsController {
       const isInitialSearching =
         a.status === 'ACTIVE' &&
         Boolean(await this.alertScheduler.isInitialSearchInProgress?.(a.id, a.lastCheckedAt));
+
+      const hasValidMatches =
+        Array.isArray(a.matches) &&
+        a.matches.some((m: any) => Number(m.foundPriceEur) <= Number(a.maxPriceEur));
+
+      if (a.status === 'ACTIVE' && !isInitialSearching && hasValidMatches) {
+        a.status = 'TRIGGERED';
+        if (this.prisma.alert?.update) {
+          try {
+            await this.prisma.alert.update({
+              where: { id: a.id },
+              data: { status: 'TRIGGERED' as any },
+            });
+          } catch {
+            // ignore reconciliation error in mock/readonly environments
+          }
+        }
+      }
+
       a.isInitialSearching = isInitialSearching;
       a.nextSearchScheduleLabel = scheduleInfo.intervalLabel;
       a.nextSearchAt = a.status === 'ACTIVE' ? scheduleInfo.nextSearchAt : null;

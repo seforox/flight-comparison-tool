@@ -154,6 +154,38 @@ describe('AlertsController (Validación de búsquedas)', () => {
     });
   });
 
+  describe('GET /alerts (findAll reconciliation)', () => {
+    it('should reconcile an ACTIVE alert with valid found matches to TRIGGERED when search is not in progress', async () => {
+      mockPrisma.alert.findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'alert-tokio',
+          status: 'ACTIVE',
+          maxPriceEur: 3000,
+          matches: [
+            { id: 'm1', foundPriceEur: 2814 },
+            { id: 'm2', foundPriceEur: 2814 },
+          ],
+        },
+      ]);
+      mockScheduler.hasCompletionPrompt = jest.fn().mockReturnValue(false);
+      mockScheduler.isInitialSearchInProgress = jest.fn().mockResolvedValue(false);
+      mockScheduler.getSearchScheduleInfo = jest.fn().mockReturnValue({
+        cronExpression: '0 */6 * * *',
+        intervalLabel: 'cada 6 horas',
+        nextSearchAt: '2026-11-23T00:00:00.000Z',
+      });
+
+      const alerts: any = await controller.findAll(mockReq);
+
+      expect(alerts[0].status).toBe('TRIGGERED');
+      expect(alerts[0].nextSearchAt).toBeNull();
+      expect(mockPrisma.alert.update).toHaveBeenCalledWith({
+        where: { id: 'alert-tokio' },
+        data: { status: 'TRIGGERED' },
+      });
+    });
+  });
+
   describe('CreateAlertDto (class-validator / ValidationPipe)', () => {
     it('should fail DTO validation when originIata equals destinationIata', async () => {
       const dto = plainToInstance(CreateAlertDto, buildValidDto({ originIata: 'MAD', destinationIata: 'MAD' }));

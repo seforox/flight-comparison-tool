@@ -274,6 +274,11 @@ export function AlertCard({
     null;
 
   const targetPrice = Number(alert.maxPriceEur);
+  const matchedDatesCount = useMemo(() => {
+    const fromTuples = dateTuples.filter((t) => t.match !== null).length;
+    if (fromTuples > 0) return fromTuples;
+    return alert.matches?.length ?? 0;
+  }, [dateTuples, alert.matches]);
   const maxChartValue = useMemo(() => {
     const prices = dateTuples
       .map((t) => t.price ?? targetPrice)
@@ -545,6 +550,38 @@ export function AlertCard({
             </div>
           </div>
         </div>
+
+        {/* Aviso positivo cuando la alerta está en TRIGGERED (al menos un vuelo encontrado) */}
+        {alert.status === "TRIGGERED" &&
+          !(alert.pendingCompletionPrompt || showCompletionPrompt) && (
+            <div
+              role="status"
+              className="mt-4 p-3.5 sm:p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200/90 flex items-start gap-2.5"
+            >
+              <span
+                aria-hidden="true"
+                className="w-7 h-7 rounded-xl bg-emerald-500/15 border border-emerald-300/80 text-emerald-700 flex items-center justify-center text-sm font-bold shrink-0"
+              >
+                ✓
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-extrabold text-[#0b2545]">
+                  ¡Vuelo encontrado!{" "}
+                  {matchedDatesCount > 0 && (
+                    <span>
+                      Hemos encontrado {matchedDatesCount}{" "}
+                      {matchedDatesCount === 1 ? "vuelo" : "vuelos"} por debajo de{" "}
+                      {targetPrice} €
+                      {bestPrice !== null ? ` (desde ${bestPrice} €)` : ""}.
+                    </span>
+                  )}
+                </p>
+                <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                  Revisa las fechas destacadas abajo para reservar o marca la alerta como completada si ya no necesitas seguir monitorizándola.
+                </p>
+              </div>
+            </div>
+          )}
 
         {/* Aviso cuando el cron vuelve a pasar y la alerta sigue en TRIGGERED (Vuelo encontrado) sin completarse */}
         {alert.status === "TRIGGERED" &&
