@@ -96,7 +96,7 @@ flight-comparison-tool/
 │       │   │   └── api.ts                        # Cliente HTTP tipado (directo o vía /api/proxy), gestión JWT y caché de aeropuertos
 │       │   └── proxy.ts                          # Next.js Proxy: puerta de acceso privado (?key=...) y cabecera X-Robots-Tag
 │       └── .env.example                          # Plantilla de variables de entorno del frontend
-├── docs/                                         # Documentación técnica detallada (01 al 10)
+├── docs/                                         # Documentación técnica detallada (01 al 11)
 ├── docker-compose.yml                            # Servicios de infraestructura local (PostgreSQL 15 y Redis 7)
 ├── railway.json                                  # Configuración de build Docker y healthcheck (/health) para Railway
 ├── .dockerignore                                 # Exclusiones para la imagen Docker de producción
@@ -191,6 +191,26 @@ flight-comparison-tool/
 
 ---
 
+## Evolución Futura / Roadmap (Post-MVP)
+
+Algunas capacidades pensadas para la evolución del producto se han dejado fuera del alcance de este MVP y se detallan en [`docs/11-roadmap-y-evolucion-futura.md`](./docs/11-roadmap-y-evolucion-futura.md):
+
+* **Cuenta de Usuario y Notificaciones Multicanal:** verificación de correo electrónico tras el registro, envío de alertas por **email** (como nuevo adaptador del puerto `NotificationProvider` complementario a Telegram), recuperación de contraseña, preferencias de canal en el perfil e inicio de sesión con Google (OAuth2).
+* **Capa de Monetización y Modelo *Freemium* (Stripe):** diferenciación entre usuarios gratuitos y suscriptores Pro:
+
+| Capacidad | Plan Gratuito (`FREE`) | Plan Suscripción (`PRO`) |
+|---|---|---|
+| **Frecuencia de búsqueda (Cron)** | Fija estándar | Configurable (menos horas entre revisiones) |
+| **Rango máximo por alerta** | Máximo 1 mes | Múltiples meses |
+| **Recarga manual de tarifas** | Bloqueada hasta el siguiente ciclo del Cron | Disponible bajo demanda |
+| **Límite de alertas activas** | Cupo máximo reducido | Ampliado / ilimitado |
+| **Agente IA "Vera"** | Solo `DEFINED_SEARCH` | `DEFINED_SEARCH` + `DESTINATION_RECOMMENDER` |
+| **Funciones avanzadas** | Comparativa estándar | Histórico de evolución de precios y alertas multi-origen/multi-destino |
+
+* **Escalabilidad, Resiliencia y Calidad Técnica:** persistencia de sesiones conversacionales de **Vera** en Redis + bloqueo distribuido del Cron para escalado horizontal multi-réplica, caché compartida de búsquedas de vuelos en Redis (TTL) para optimizar cuota, estrategia **multi-proveedor** sobre `FlightSearchProvider` y pipeline **CI/CD** (GitHub Actions) junto a tests **E2E con Playwright**.
+
+---
+
 ## Presentación y Vídeo Explicativo
 
 ### Slides del Proyecto
@@ -215,3 +235,4 @@ flight-comparison-tool/
 8. [`08-arquitectura-y-componentes-frontend.md`](./docs/08-arquitectura-y-componentes-frontend.md): Arquitectura del Frontend **V Flights** (Next.js 16 + React 19), proxy BFF, cliente API, caché de aeropuertos y desglose de componentes.
 9. [`09-ux-ui-accesibilidad-y-flujos-frontal.md`](./docs/09-ux-ui-accesibilidad-y-flujos-frontal.md): Diseño UX/UI, flujos interactivos, gráficas comparativas, responsividad móvil y accesibilidad WAI-ARIA.
 10. [`10-despliegue-produccion-y-acceso-privado.md`](./docs/10-despliegue-produccion-y-acceso-privado.md): Guía de despliegue en Vercel + Railway, variables de entorno y capas de acceso privado activables por flag.
+11. [`11-roadmap-y-evolucion-futura.md`](./docs/11-roadmap-y-evolucion-futura.md): Futuros pasos Post-MVP (verificación y alertas por email, monetización Free vs. Pro, histórico de precios, escalado horizontal en Redis, multi-proveedor y CI/CD).
