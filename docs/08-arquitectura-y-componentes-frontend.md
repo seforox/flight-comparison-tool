@@ -3,7 +3,7 @@
 ## 1. Visión General y Stack del Frontal (`apps/web`)
 El frontend del proyecto se desarrolló bajo la identidad de marca **V Flights** ("*Vuela cuando sea más barato, no solo cuando toca*") en el paquete `apps/web` del monorepo, corriendo en el puerto `3000` y consumiendo la API REST de NestJS en el puerto `3001`.
 
-- **Framework:** Next.js `16.4.0` con **App Router** y Turbopack.
+- **Framework:** Next.js `16.4.6` con **App Router**, Turbopack y `Proxy` (`src/proxy.ts`).
 - **Librería UI:** React `19.3.0`.
 - **Estilos:** Tailwind CSS `v4` (`@tailwindcss/turbopack`), paleta corporativa azul marino profundo (`#071932`, `#0b2545`, `#0e2a47`) con acentos cian (`#00b4d8`, `#18c1f0`) y superficies claras (`#f4f7fb`).
 - **Tipado:** TypeScript 5 de extremo a extremo compartido conceptualmente con los DTOs del backend.
@@ -16,27 +16,34 @@ El frontend del proyecto se desarrolló bajo la identidad de marca **V Flights**
 apps/web/
 ├── public/
 │   └── logo.jpg                       # Logotipo oficial de V Flights
+├── .env.example                       # Plantilla de variables de entorno (proxy BFF y acceso privado)
 └── src/
+    ├── proxy.ts                       # Next.js Proxy: puerta de acceso privado (?key=...) y cabecera X-Robots-Tag
     ├── app/
+    │   ├── api/proxy/[...path]/
+    │   │   └── route.ts               # Proxy BFF en servidor para reenviar llamadas a la API ocultando Railway
     │   ├── layout.tsx                 # Layout global (lang="es", skip-link accesible al contenido principal)
     │   ├── page.tsx                   # Controlador de vista principal (LandingView vs DashboardPage)
+    │   ├── robots.ts                  # Generación dinámica de robots.txt según BLOCK_SEARCH_ENGINES
     │   ├── login/
-    │   │   └── page.tsx               # Página unificada de Inicio de Sesión y Registro
+    │   │   └── page.tsx               # Página unificada de Inicio de Sesión y Registro (con visor de contraseña)
     │   └── globals.css                # Importación y configuración de Tailwind CSS v4
     ├── components/
     │   ├── LandingView.tsx            # Página de aterrizaje pública para usuarios sin sesión
-    │   ├── CreateAlertForm.tsx        # Formulario principal de búsqueda por patrones semanales
+    │   ├── CreateAlertForm.tsx        # Formulario principal de búsqueda por patrones semanales y precio opcional
     │   ├── AirportSelector.tsx        # Selector desplegable y buscador asíncrono de +8.000 aeropuertos IATA
     │   ├── AlertCard.tsx              # Tarjeta de detalle de alerta, edición inline, tuplas y gráfica de barras
     │   └── AgentChatbot.tsx           # Widget flotante y ampliable del Agente IA "Vera"
     └── lib/
-        └── api.ts                     # Cliente HTTP fetch, almacenamiento JWT y caché en memoria de aeropuertos
+        └── api.ts                     # Cliente HTTP fetch (directo o vía /api/proxy), almacenamiento JWT y caché de aeropuertos
 ```
 
 ---
 
 ## 3. Capa de Comunicación y Caché en Memoria (`src/lib/api.ts`)
-El módulo `api.ts` centraliza toda la comunicación con `http://localhost:3001` (`NEXT_PUBLIC_API_URL`):
+El módulo `api.ts` centraliza toda la comunicación con el backend, soportando dos modos de conexión configurables:
+- **Modo Proxy BFF (producción recomendada):** Si `NEXT_PUBLIC_USE_API_PROXY="true"`, el navegador llama a `/api/proxy/...` y el servidor de Next.js reenvía la petición a `API_INTERNAL_URL` inyectando la cabecera `x-api-gateway-secret`.
+- **Modo Directo (desarrollo local):** Llama directamente a `NEXT_PUBLIC_API_URL` (por defecto `http://localhost:3001`).
 
 1. **Gestión del Token JWT:**
    - Almacena y lee el token en `localStorage` bajo la clave `flight_jwt_token` (`getToken`, `setToken`, `clearToken`).
@@ -63,7 +70,7 @@ Cuando `DashboardPage` detecta que el usuario no tiene sesión activa (`!user`),
 
 ### 4.2. `app/login/page.tsx` (Autenticación Unificada)
 - Permite alternar sin recargar entre las pestañas **Iniciar Sesión** (`POST /auth/login`) y **Crear Cuenta** (`POST /auth/register`) mediante un `tablist` accesible.
-- Incluye enlace de retorno a la página de inicio de V Flights, validación de longitud mínima de contraseña (6 caracteres) y redirección automática al panel principal tras almacenar el JWT.
+- Incluye botón interactivo para **mostrar u ocultar la contraseña**, enlace de retorno a la página de inicio de V Flights, validación de longitud mínima de contraseña (6 caracteres) y redirección automática al panel principal tras almacenar el JWT.
 
 ### 4.3. `app/page.tsx` (`DashboardPage` - Panel Principal)
 Orquesta el estado global del usuario autenticado:
@@ -82,12 +89,12 @@ Orquesta el estado global del usuario autenticado:
 
 ### 4.5. `CreateAlertForm.tsx` (Buscador por Patrones Semanales)
 - Todos los campos inician vacíos con *placeholders* orientativos para obligar a una selección consciente y evitar envíos accidentales con valores por defecto.
-- Incluye botón `⇄` para intercambiar origen y destino en un clic.
-- Incorpora selector obligatorio de **Escalas** (*✈️ Solo directo* vs. *🔄 Con escalas*) y **píldoras de rango rápido** calculadas dinámicamente según la fecha actual (*Resto del mes actual*, *Mes actual completo* y *Próximo mes completo*).
+- Incluye botón `⇄` para intercambiar origen y destino en un clic, y validaciones preventivas que impiden seleccionar el mismo aeropuerto de origen y destino o búsquedas de ida y vuelta en el mismo día.
+- Incorpora selector obligatorio de **Escalas** (*✈️ Solo directo* vs. *🔄 Con escalas*), campo de **Presupuesto máximo opcional** (si se deja vacío, busca el vuelo más barato posible sin tope) y **píldoras de rango rápido** calculadas dinámicamente según la fecha actual (*Resto del mes actual*, *Mes actual completo* y *Próximo mes completo*).
 
 ### 4.6. `AlertCard.tsx` (Detalle, Edición Inline y Gráfica Comparativa)
 Renderiza la radiografía completa de una alerta:
-- **Cabecera y métricas:** Estado actual, patrón semanal (`Viernes ➔ Domingo`), indicador de escalas (`Solo directo` / `Con escalas`), número de pasajeros, **Mejor Precio** encontrado y **Objetivo Máx. (€)**.
+- **Cabecera y métricas:** Estado actual (incluyendo indicador de carga `Buscando chollos...` mientras dura la búsqueda inicial), patrón semanal (`Viernes ➔ Domingo`), indicador de escalas (`Solo directo` / `Con escalas`), número de pasajeros, **Mejor Precio** encontrado y **Objetivo Máx. (€)** (o *Sin límite / Más barato posible* si no se fijó tope).
 - **Barra de acciones del ciclo de vida:**
   - *🔄 Actualizar tarifas* (`POST /alerts/:id/check`).
   - *🧭 Seguir buscando* (`ACTIVE`), *⏸ Pausar* (`PAUSED`) y *📥 Completar* (`COMPLETED`).

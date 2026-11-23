@@ -1,10 +1,14 @@
 # 05. Seguridad, Autenticación JWT y Notificaciones en Telegram
 
-## 1. Validación Global de Entrada (`ValidationPipe`)
-En `main.ts` se configuró CORS habilitado para el frontend y un `ValidationPipe` global de NestJS con:
+## 1. Validación Global de Entrada (`ValidationPipe`) y Protección de Gateway
+En `main.ts` se configuró CORS restringido mediante la variable `CORS_ORIGIN` y un `ValidationPipe` global de NestJS con:
 - `whitelist: true`: Elimina automáticamente cualquier campo JSON que no esté declarado en el DTO.
 - `forbidNonWhitelisted: true`: Rechaza con `400 Bad Request` cualquier petición que intente inyectar propiedades no permitidas.
 - `transform: true`: Convierte tipos primitivos automáticamente.
+
+Adicionalmente, para entornos de producción se añadieron capas de protección activables por variable de entorno (detalladas en [`10-despliegue-produccion-y-acceso-privado.md`](./10-despliegue-produccion-y-acceso-privado.md)):
+- **`ApiGatewayGuard` (`API_GATEWAY_ENABLED` / `API_GATEWAY_SECRET`):** Guard global que exige la cabecera `x-api-gateway-secret` emitida por el proxy BFF de Vercel (dejando exento `GET /health`).
+- **Control de registro (`ALLOW_REGISTRATION` / `ALLOWED_EMAILS`):** Permite cerrar el registro de nuevas cuentas o limitarlo a una lista blanca de correos electrónicos.
 
 ## 2. Autenticación Criptográfica, Perfil y Cierre de Sesión (`AuthController`)
 - **Sustitución de `bcrypt` por `bcryptjs`:** En Windows con Node.js v24 y las políticas de seguridad de `pnpm` v10+, el binario nativo en C++ de `bcrypt` (`bcrypt_lib.node`) provocaba errores `MODULE_NOT_FOUND`. Se migró a `bcryptjs` (100% JavaScript puro, sin compilación nativa), manteniendo el mismo estándar de seguridad con *salt* de 10 rondas.
@@ -19,7 +23,7 @@ En `main.ts` se configuró CORS habilitado para el frontend y un `ValidationPipe
 
 ## 3. Notificaciones Enriquecidas en Telegram (`TelegramAdapter`)
 - Se integró la librería `telegraf` conectada mediante `TELEGRAM_BOT_TOKEN`.
-- **Vinculación desde el Frontend:** En la barra superior del Dashboard de **V Flights**, el botón **Vincular Telegram / Telegram** abre un modal accesible paso a paso donde el usuario introduce su `telegramChatId` numérico tras pulsar `/start` en el bot, ejecutando `PATCH /auth/telegram`.
+- **Vinculación desde el Frontend:** En la barra superior del Dashboard de **V Flights**, el botón **Vincular Telegram / Telegram** abre un modal accesible con una guía interactiva en 3 pasos (consultar el ID numérico en `@userinfobot`, iniciar el bot de alertas `@asistente_comparador_vuelos_bot` con `/start` y pegar el `telegramChatId` para guardarlo vía `PATCH /auth/telegram`).
 - **Formato del mensaje unificado:**
   ```text
   ✈️ ¡Vuelos encontrados para MAD ➔ LON! (2 pasajeros | Máx: 100 EUR)

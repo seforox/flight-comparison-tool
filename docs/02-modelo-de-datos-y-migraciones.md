@@ -3,7 +3,7 @@
 ## 1. Entidades Principales (`schema.prisma`)
 El esquema en PostgreSQL consta de cuatro modelos principales (los tres primeros relacionados con borrado en cascada `onDelete: Cascade`):
 - **`User`:** Credenciales (`email`, `passwordHash`) y canal de notificación (`telegramChatId`).
-- **`Alert`:** Configuración de búsqueda recurrente (`originIata`, `destinationIata`, `departureDay`, `returnDay`, `adults`, `directOnly`, `maxPriceEur`, `startDate`, `endDate`, `status`), además del flag de aviso tras ciclo Cron (`pendingCompletionPrompt`).
+- **`Alert`:** Configuración de búsqueda recurrente (`originIata`, `destinationIata`, `departureDay`, `returnDay`, `adults`, `directOnly`, `maxPriceEur` opcional/nullable para buscar el vuelo más barato sin tope, `startDate`, `endDate`, `status`), además del flag de aviso tras ciclo Cron (`pendingCompletionPrompt`).
 - **`Match`:** Historial de vuelos baratos encontrados para cada alerta (`departureDate`, `returnDate`, `foundPriceEur`, `airlineCode`, `bookingUrl`, `notifiedAt`).
 - **`Airport`:** Catálogo global de **+8.000 aeropuertos IATA** (`iata` como clave primaria, `name`, `city`, `country`, `popularity`) indexado por `city`, `country` y `popularity DESC` para alimentar el buscador autocompletable del frontend y la resolución de ciudades en el Agente IA.
 
@@ -11,7 +11,7 @@ El esquema en PostgreSQL consta de cuatro modelos principales (los tres primeros
 Se definieron 4 estados con responsabilidades claras:
 1. **`ACTIVE` (*Buscando*):** Estado inicial (y al reactivar o editar una alerta). El Cron Job la revisa periódicamente y busca ofertas.
 2. **`PAUSED` (*En pausa*):** Pausada manualmente por el usuario. Cancela cualquier job pendiente en BullMQ, silencia notificaciones y ahorra cuota de la API externa sin borrar la configuración ni el historial de `Matches`.
-3. **`TRIGGERED` (*Vuelo encontrado*):** Estado automático al que pasa una alerta **únicamente cuando se ha recorrido su rango de fechas y se ha encontrado al menos un vuelo dentro del presupuesto** (respetando también `directOnly`). Evita que el sistema vuelva a buscar y notificar repetidamente la misma alerta en siguientes ejecuciones del Cron.
+3. **`TRIGGERED` (*Vuelo encontrado*):** Estado automático al que pasa una alerta **en cuanto se ha recorrido su rango de fechas y se ha encontrado al menos un vuelo válido** que cumpla el filtro `directOnly` y, si se definió, el presupuesto `maxPriceEur`. Evita que el sistema vuelva a buscar y notificar repetidamente la misma alerta en siguientes ejecuciones del Cron.
    - **Recordatorio en el siguiente ciclo Cron (`pendingCompletionPrompt`):** Si el Cron vuelve a ejecutarse y la alerta continúa en estado `TRIGGERED`, `AlertSchedulerService` activa `pendingCompletionPrompt = true` para que la interfaz web pregunte al usuario si desea **Completar** la alerta o **Mantenerla** activa.
 4. **`COMPLETED` (*Completada*):** Fin del ciclo de vida de la alerta (se muestra archivada con estilo dorado en el frontal y queda bloqueada frente a ediciones o reactivaciones). Se alcanza de dos formas:
    - **Automática:** Cuando `AlertSchedulerService` detecta que `endDate` ya ha expirado o que ya no quedan combinaciones futuras posibles de ida y vuelta dentro del rango.
