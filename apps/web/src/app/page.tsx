@@ -813,12 +813,12 @@ export default function DashboardPage() {
       {/* Widget del Chat de Agente IA (minimizado por defecto en esquina inferior derecha) */}
       <AgentChatbot onAlertCreated={handleAlertCreated} />
 
-      {/* Notificación flotante (en escritorio abajo a la izquierda; en móvil arriba de la barra del chat) */}
+      {/* Notificación flotante (en escritorio abajo a la izquierda; en móvil arriba del botón del chat) */}
       {featuredTriggeredAlert && !dismissToast && (
         <div
           role="status"
           aria-live="polite"
-          className={`fixed bottom-24 left-4 right-4 sm:right-auto sm:bottom-5 sm:left-5 z-40 sm:max-w-md rounded-2xl px-4 py-3 shadow-xl border ${
+          className={`fixed bottom-20 left-4 right-4 sm:right-auto sm:bottom-5 sm:left-5 z-40 sm:max-w-md rounded-2xl px-4 py-3 shadow-xl border ${
             featuredTriggeredAlert.pendingCompletionPrompt ||
             cronPromptedIds[featuredTriggeredAlert.id]
               ? "bg-amber-50 border-amber-300"

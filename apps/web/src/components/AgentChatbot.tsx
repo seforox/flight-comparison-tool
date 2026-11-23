@@ -187,32 +187,33 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
     ]);
   };
 
-  // Vista minimizada en la esquina inferior derecha (responsiva en móvil)
+  // Vista minimizada en la esquina inferior derecha (botón compacto en móvil, tarjeta en escritorio)
   if (!isOpen) {
     return (
-      <div className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-5 sm:right-5 z-50 flex justify-end pointer-events-none">
+      <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 flex justify-end pointer-events-none">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
           aria-expanded="false"
           aria-label="Abrir chat con Vera, Agente IA de vuelos"
-          className="pointer-events-auto group flex items-center gap-3 pl-3.5 pr-4 py-3 rounded-3xl bg-gradient-to-r from-[#0b2545] via-[#0d3b66] to-[#0077b6] hover:from-[#091e3a] hover:to-[#0096c7] text-white shadow-[0_16px_40px_rgba(11,37,69,0.35)] border border-cyan-300/30 transition-all hover:scale-[1.02] cursor-pointer text-left w-full sm:w-auto sm:max-w-sm"
+          title="Hablar con Vera · Agente IA"
+          className="pointer-events-auto group relative flex items-center justify-center sm:justify-start w-14 h-14 sm:w-auto sm:h-auto sm:max-w-sm sm:gap-3 p-0 sm:pl-3.5 sm:pr-4 sm:py-3 rounded-full sm:rounded-3xl bg-gradient-to-r from-[#0b2545] via-[#0d3b66] to-[#0077b6] hover:from-[#091e3a] hover:to-[#0096c7] text-white shadow-[0_14px_34px_rgba(11,37,69,0.4)] border border-cyan-300/35 transition-all hover:scale-105 sm:hover:scale-[1.02] active:scale-95 cursor-pointer text-left"
         >
           {/* Icono del Agente IA con indicador activo */}
           <div className="relative shrink-0" aria-hidden="true">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center text-cyan-300 shadow-inner">
+            <div className="w-14 h-14 sm:w-12 sm:h-12 rounded-full sm:rounded-2xl sm:bg-white/15 sm:border sm:border-white/25 flex items-center justify-center text-cyan-300 sm:shadow-inner">
               <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 2L14.4 7.6L20 10L14.4 12.4L12 18L9.6 12.4L4 10L9.6 7.6L12 2ZM19 15L20.1 17.4L22.5 18.5L20.1 19.6L19 22L17.9 19.6L15.5 18.5L17.9 17.4L19 15ZM6 16L6.8 17.7L8.5 18.5L6.8 19.3L6 21L5.2 19.3L3.5 18.5L5.2 17.7L6 16Z" />
               </svg>
             </div>
-            <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+            <span className="absolute top-0.5 right-0.5 sm:-top-1 sm:-right-1 flex h-3.5 w-3.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-400 border-2 border-[#0b2545]" />
             </span>
           </div>
 
-          {/* Información clara de que es un Chat de Agente IA */}
-          <div className="min-w-0 flex-1">
+          {/* Información clara de que es un Chat de Agente IA (solo escritorio/tablet) */}
+          <div className="hidden sm:block min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="text-sm font-extrabold tracking-tight text-white">
                 Vera · Agente IA
@@ -221,15 +222,15 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                 Chat IA
               </span>
             </div>
-            <p className="text-xs text-sky-100/90 mt-0.5 leading-snug truncate sm:whitespace-normal">
+            <p className="text-xs text-sky-100/90 mt-0.5 leading-snug">
               Crea alertas hablando o pídeme 5 destinos baratos
             </p>
           </div>
 
-          {/* Flecha de abrir */}
+          {/* Flecha de abrir (solo escritorio/tablet) */}
           <div
             aria-hidden="true"
-            className="w-8 h-8 rounded-full bg-white/10 group-hover:bg-white/20 flex items-center justify-center text-cyan-200 shrink-0 transition"
+            className="hidden sm:flex w-8 h-8 rounded-full bg-white/10 group-hover:bg-white/20 items-center justify-center text-cyan-200 shrink-0 transition"
           >
             <svg
               className="w-4 h-4"
