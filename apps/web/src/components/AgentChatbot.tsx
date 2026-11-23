@@ -11,6 +11,7 @@ interface ChatMessage {
   recommendations?: DestinationRecommendation[];
   awaitingConfirmation?: boolean;
   alertCreated?: boolean;
+  needsAdultsChoice?: boolean;
   needsDirectChoice?: boolean;
   needsBudgetTypeChoice?: boolean;
   parsedDirectOnly?: boolean;
@@ -107,22 +108,39 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         );
       }
 
+      const isModifyingDraft = /qu[eé]\s+dato\s+quieres\s+modificar/i.test(
+        res.reply
+      );
+
+      const asksForAdults =
+        !res.awaitingConfirmation &&
+        !res.alertCreated &&
+        !isModifyingDraft &&
+        res.activeSkill === "DEFINED_SEARCH" &&
+        (res.draftData
+          ? res.draftData.adults == null
+          : /n[uú]mero de pasajeros|cu[aá]ntos pasajeros/i.test(res.reply));
+
       const asksForDirect =
         !res.awaitingConfirmation &&
         !res.alertCreated &&
+        !isModifyingDraft &&
         res.activeSkill === "DEFINED_SEARCH" &&
-        (res.draftData?.directOnly === undefined ||
-          /vuelo directo o con escalas/i.test(res.reply));
+        (res.draftData
+          ? res.draftData.directOnly == null
+          : /vuelo directo o con escalas/i.test(res.reply));
 
       const asksForBudgetType =
         !res.awaitingConfirmation &&
         !res.alertCreated &&
+        !isModifyingDraft &&
         (((res.draftData?.adults ?? 1) > 1 &&
           res.draftData?.maxPriceEur != null &&
           !res.draftData?.budgetType) ||
-          /m[aá]ximo por persona o m[aá]ximo total|por persona o total/i.test(
-            res.reply
-          ));
+          (!res.draftData?.budgetType &&
+            /m[aá]ximo por persona o m[aá]ximo total|por persona o total/i.test(
+              res.reply
+            )));
 
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
@@ -132,6 +150,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
         recommendations: res.recommendations,
         awaitingConfirmation: res.awaitingConfirmation,
         alertCreated: res.alertCreated,
+        needsAdultsChoice: asksForAdults,
         needsDirectChoice: asksForDirect,
         needsBudgetTypeChoice: asksForBudgetType,
         parsedDirectOnly: res.parsedData?.directOnly,
@@ -439,6 +458,34 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                         <p className="text-[11px] text-slate-600 mt-1">
                           {rec.reason}
                         </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Selector interactivo cuando Vera pregunta el número de pasajeros */}
+              {msg.needsAdultsChoice && (
+                <div className="mt-3 pt-2.5 border-t border-slate-200/80 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-[#0b2545]">
+                    Selecciona el número de pasajeros:
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[1, 2, 3, 4].map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() =>
+                          sendMessage(
+                            count === 1 ? "1 pasajero" : `${count} pasajeros`
+                          )
+                        }
+                        className="py-1.5 px-2 rounded-xl bg-white hover:bg-sky-50 border border-slate-200 hover:border-[#0096c7] text-[#0b2545] font-semibold text-xs flex items-center justify-center gap-1 transition shadow-2xs cursor-pointer"
+                      >
+                        <span aria-hidden="true">
+                          {count === 1 ? "👤" : "👥"}
+                        </span>
+                        <span>{count}</span>
                       </button>
                     ))}
                   </div>

@@ -93,7 +93,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       const sessionId = 'session-confirm-flow';
       await service.chat(
         'user-1',
-        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 75 euros entre el 2026-11-01 y el 2026-11-30',
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 1 persona por menos de 75 euros entre el 2026-11-01 y el 2026-11-30',
         sessionId,
       );
 
@@ -123,10 +123,29 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(result.activeSkill).toBe('DEFINED_SEARCH');
       expect(result.isComplete).toBe(false);
       expect(result.awaitingConfirmation).toBe(false);
+      expect(result.reply).toContain('número de pasajeros');
       expect(result.reply).toContain('vuelo directo o con escalas');
     });
 
-    it('should allow completing and creating an alert WITHOUT maxPriceEur (optional budget)', async () => {
+    it('should ask for number of passengers if not specified before completing the alert', async () => {
+      const sessionId = 'session-missing-adults';
+      const prompt =
+        'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles entre el 2026-11-01 y el 2026-11-30';
+
+      const turn1 = await service.chat('user-1', prompt, sessionId);
+      expect(turn1.isComplete).toBe(false);
+      expect(turn1.awaitingConfirmation).toBe(false);
+      expect(turn1.reply).toContain('número de pasajeros');
+
+      const turn2 = await service.chat('user-1', '2', sessionId);
+      expect(turn2.isComplete).toBe(true);
+      expect(turn2.awaitingConfirmation).toBe(true);
+      expect(turn2.parsedData?.adults).toBe(2);
+      expect(turn2.parsedData?.maxPriceEur).toBeNull();
+      expect(turn2.reply).toContain('Más barato posible');
+    });
+
+    it('should allow completing and creating an alert WITHOUT maxPriceEur showing "Más barato posible"', async () => {
       const sessionId = 'session-no-budget';
       const prompt =
         'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 1 persona entre el 2026-11-01 y el 2026-11-30';
@@ -137,10 +156,11 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       expect(turn1.isComplete).toBe(true);
       expect(turn1.awaitingConfirmation).toBe(true);
       expect(turn1.parsedData?.maxPriceEur).toBeNull();
-      expect(turn1.reply).toContain('Sin límite de precio');
+      expect(turn1.reply).toContain('Más barato posible');
 
       const turn2 = await service.chat('user-1', 'Sí, lánzala', sessionId);
       expect(turn2.alertCreated).toBe(true);
+      expect(turn2.reply).toContain('más barato posible');
       expect(mockPrisma.alert.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           originIata: 'MAD',
@@ -152,7 +172,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
 
     it('should deduce startDate and endDate from natural language month expressions ("en noviembre de este año")', async () => {
       const currentYear = new Date().getUTCFullYear();
-      const prompt = 'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles por menos de 85 euros en noviembre de este año';
+      const prompt = 'Vuelos directos de MAD a LON saliendo el lunes y volviendo el miercoles para 1 persona por menos de 85 euros en noviembre de este año';
 
       const result = await service.chat('user-1', prompt, 'session-month-deduction');
 
@@ -244,7 +264,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
       // Turno 4: Da el resto de datos para completar la alerta
       const turn4Complete = await service.chat(
         'user-1',
-        'En vuelo directo de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
+        'En vuelo directo para 1 persona de viernes a domingo por menos de 90 euros entre 2026-12-01 y 2026-12-31',
         sessionId,
       );
       expect(turn4Complete.activeSkill).toBe('DEFINED_SEARCH');
@@ -386,7 +406,7 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
 
       const turn1 = await service.chat(
         'user-1',
-        'Vuelos directos de Madrid a Madrid el 23/11/2026 y volver el 23/11/2026 saliendo el lunes y volviendo el miercoles por menos de 100 euros',
+        'Vuelos directos de Madrid a Madrid el 23/11/2026 y volver el 23/11/2026 saliendo el lunes y volviendo el miercoles para 1 persona por menos de 100 euros',
         sessionId,
       );
 

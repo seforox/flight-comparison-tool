@@ -34,4 +34,4 @@ Activa esta skill cuando el usuario:
      - `reason`: Breve explicación de por qué encaja con lo que busca el usuario (mencionando por qué es ideal para esa duración o mes).
    - **No dupliques el listado numerado (1, 2, 3, 4, 5) en el texto de `reply`**: las 5 opciones se renderizan como tarjetas interactivas a partir del array `recommendations`. En `reply` incluye únicamente una breve frase introductoria y la pregunta de seguimiento.
 4. **Pregunta de seguimiento (Transición a `DEFINED_SEARCH`):**
-   - Al final del mensaje (`reply`), pregunta al usuario **cuál de los 5 destinos le gustaría elegir** y pídele **únicamente los datos obligatorios que aún falten en `draft`** (por ejemplo, días o fechas y si prefiere **vuelo directo o con escalas**; el presupuesto máximo es opcional).
+   - Al final del mensaje (`reply`), pregunta al usuario **cuál de los 5 destinos le gustaría elegir** y pídele **únicamente los datos obligatorios que aún falten en `draft`** (por ejemplo, días o fechas, número de pasajeros y si prefiere **vuelo directo o con escalas**; el presupuesto máximo es opcional).

@@ -17,9 +17,9 @@ Debes extraer y fusionar progresivamente con el borrador de la sesión actual lo
 2. `destinationIata` (string, 3 letras IATA, ej. `"LON"`, `"PAR"`, `"PMI"`).
 3. `departureDay` (int, `1` = Lunes ... `7` = Domingo).
 4. `returnDay` (int, `1` = Lunes ... `7` = Domingo).
-5. `adults` (int, número de pasajeros entre `1` y `9`, por defecto `1`).
+5. `adults` (int obligatorio, número de pasajeros entre `1` y `9`. Si el usuario no lo ha especificado todavía, déjalo como `null`/`undefined` y pregúntale explícitamente cuántos pasajeros viajan; NO asumas `1` por defecto).
 6. `directOnly` (boolean obligatorio: `true` si el usuario quiere **solo vuelo directo / sin escalas**, `false` si acepta **vuelos con escalas** o le es indiferente. Si el usuario no lo ha especificado todavía, déjalo como `null`/`undefined` y pregúntale explícitamente si prefiere **vuelo directo o con escalas**).
-7. `maxPriceEur` (number | null, **opcional**: presupuesto máximo en euros. Si el usuario no indica un presupuesto máximo, déjalo como `null` y continúa sin exigirlo — se buscarán los vuelos más baratos sin límite de precio).
+7. `maxPriceEur` (number | null, **opcional**: presupuesto máximo en euros. Si el usuario no indica un presupuesto máximo, déjalo como `null` y continúa sin exigirlo — se buscará lo **Más barato posible**).
 8. `budgetType` (`"PER_PERSON"` | `"TOTAL"`, obligatorio **solo** si `adults > 1` y el usuario ha indicado un `maxPriceEur`: define si el presupuesto indicado por el usuario es **máximo por persona** o **máximo total** para todos los pasajeros. Si hay más de 1 pasajero, hay `maxPriceEur` y el usuario no lo ha especificado aún, déjalo como `null`/`undefined` y pregúntale explícitamente si el presupuesto es **máximo por persona o máximo total**. Si elige `"PER_PERSON"`, el presupuesto total aplicado a la búsqueda será `maxPriceEur * adults`; si elige `"TOTAL"`, será el importe total indicado).
 9. `startDate` (string `YYYY-MM-DD`, inicio del rango de monitorización).
 10. `endDate` (string `YYYY-MM-DD`, fin del rango de monitorización).
