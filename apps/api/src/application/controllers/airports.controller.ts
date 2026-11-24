@@ -3,6 +3,23 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
+export const SQL_ACCENT_FROM = 'áàäâãåăéèëêíìïîóòöôõøúùüûñçýÿšșžłț';
+export const SQL_ACCENT_TO   = 'aaaaaaaeeeeiiiioooooouuuuncyysszlt';
+
+export function normalizeSearchText(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ø/g, 'o')
+    .replace(/ł/g, 'l');
+}
+
+export function sqlNormalizeColumn(columnName: string): string {
+  return `translate(LOWER("${columnName}"), '${SQL_ACCENT_FROM}', '${SQL_ACCENT_TO}')`;
+}
+
 export interface AirportRecord {
   iata: string;
   name: string;
@@ -130,23 +147,29 @@ export class AirportsController implements OnModuleInit {
       return { total: this.totalCount, items };
     }
 
-    const likePattern = `%${query}%`;
-    const prefixPattern = `${query}%`;
+    const normalizedQuery = normalizeSearchText(query);
+    const likePattern = `%${normalizedQuery}%`;
+    const prefixPattern = `${normalizedQuery}%`;
     const exactUpper = query.toUpperCase();
+
+    const normIata = sqlNormalizeColumn('iata');
+    const normCity = sqlNormalizeColumn('city');
+    const normName = sqlNormalizeColumn('name');
+    const normCountry = sqlNormalizeColumn('country');
 
     const items = await this.prisma.$queryRawUnsafe<AirportRecord[]>(
       `SELECT "iata", "name", "city", "country", "popularity"
        FROM "Airport"
-       WHERE "iata" ILIKE $1
-          OR "city" ILIKE $1
-          OR "name" ILIKE $1
-          OR "country" ILIKE $1
+       WHERE ${normIata} LIKE $1
+          OR ${normCity} LIKE $1
+          OR ${normName} LIKE $1
+          OR ${normCountry} LIKE $1
        ORDER BY
          CASE
            WHEN UPPER("iata") = $2 THEN 0
-           WHEN UPPER("iata") LIKE UPPER($3) THEN 1
-           WHEN LOWER("city") LIKE LOWER($3) THEN 2
-           WHEN LOWER("country") LIKE LOWER($3) THEN 3
+           WHEN ${normIata} LIKE $3 THEN 1
+           WHEN ${normCity} LIKE $3 THEN 2
+           WHEN ${normCountry} LIKE $3 THEN 3
            ELSE 4
          END ASC,
          "popularity" DESC,

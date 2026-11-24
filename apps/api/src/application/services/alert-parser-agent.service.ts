@@ -10,6 +10,10 @@ import {
   getTodayUtcDateKey,
   validateAlertSearchRules,
 } from '../../domain/dtos/create-alert.dto';
+import {
+  normalizeSearchText,
+  sqlNormalizeColumn,
+} from '../controllers/airports.controller';
 
 export type AgentSkill = 'DEFINED_SEARCH' | 'DESTINATION_RECOMMENDER';
 
@@ -142,6 +146,18 @@ const CITY_TO_IATA: Record<string, string> = {
   oporto: 'OPO',
   berlin: 'BER',
   berlín: 'BER',
+  munich: 'MUC',
+  múnich: 'MUC',
+  munchen: 'MUC',
+  münchen: 'MUC',
+  frankfurt: 'FRA',
+  francfort: 'FRA',
+  fráncfort: 'FRA',
+  estocolmo: 'STO',
+  copenhague: 'CPH',
+  oslo: 'OSL',
+  varsovia: 'WAW',
+  cracovia: 'KRK',
   bruselas: 'BRU',
   viena: 'VIE',
   praga: 'PRG',
@@ -1328,15 +1344,18 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (!candidate || candidate.length < 3 || candidate.length > 40) return;
 
     try {
+      const normalizedCandidate = normalizeSearchText(candidate);
+      const normCity = sqlNormalizeColumn('city');
+      const normName = sqlNormalizeColumn('name');
       const rows = await (this.prisma as any).$queryRawUnsafe(
         `SELECT "iata" FROM "Airport"
-         WHERE LOWER("city") = LOWER($1)
-            OR LOWER("name") LIKE LOWER($2)
-            OR LOWER("city") LIKE LOWER($2)
+         WHERE ${normCity} = $1
+            OR ${normName} LIKE $2
+            OR ${normCity} LIKE $2
          ORDER BY "popularity" DESC
          LIMIT 1`,
-        candidate,
-        `${candidate}%`,
+        normalizedCandidate,
+        `${normalizedCandidate}%`,
       );
       if (rows?.[0]?.iata) {
         state.draft.originIata = String(rows[0].iata).toUpperCase();
@@ -1347,11 +1366,12 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
   }
 
   private extractOriginFromReply(prompt: string, state: SessionState): void {
-    const lower = prompt.toLowerCase().trim();
+    const normalizedLower = normalizeSearchText(prompt);
 
     for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
-      const regex = new RegExp(`(?:^|\\b)${city}(?:\\b|$)`, 'i');
-      if (regex.test(lower)) {
+      const normalizedCity = normalizeSearchText(city);
+      const regex = new RegExp(`(?:^|\\b)${normalizedCity}(?:\\b|$)`, 'i');
+      if (regex.test(normalizedLower)) {
         state.draft.originIata = iata;
         return;
       }
@@ -1372,9 +1392,15 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (/(?:de|desde)\s+[A-Z]{3}\s+(?:a|hacia)\s+[A-Z]{3}/.test(prompt)) {
       return true;
     }
-    const lower = prompt.toLowerCase();
+    const normalized = normalizeSearchText(prompt);
     for (const cityA of Object.keys(CITY_TO_IATA)) {
-      if (lower.includes(`de ${cityA} a `) || lower.includes(`desde ${cityA} a `) || lower.includes(`de ${cityA} hacia `) || lower.includes(`desde ${cityA} hacia `)) {
+      const normCityA = normalizeSearchText(cityA);
+      if (
+        normalized.includes(`de ${normCityA} a `) ||
+        normalized.includes(`desde ${normCityA} a `) ||
+        normalized.includes(`de ${normCityA} hacia `) ||
+        normalized.includes(`desde ${normCityA} hacia `)
+      ) {
         return true;
       }
     }
@@ -1383,9 +1409,11 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 
   private hasExplicitDestinationChoice(prompt: string, recommendations?: DestinationRecommendation[]): boolean {
     if (!recommendations || recommendations.length === 0) return false;
-    const lower = prompt.toLowerCase();
+    const normalized = normalizeSearchText(prompt);
     return recommendations.some(
-      r => lower.includes(r.city.toLowerCase().split(' ')[0]) || prompt.toUpperCase().includes(r.iataCode),
+      r =>
+        normalized.includes(normalizeSearchText(r.city.split(' ')[0])) ||
+        prompt.toUpperCase().includes(r.iataCode),
     );
   }
 
@@ -1584,13 +1612,14 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       }
     }
 
-    // 2. Extraer por nombres de ciudades del catálogo general (comprobando origen y destino de forma independiente)
+    // 2. Extraer por nombres de ciudades del catálogo general (comprobando origen y destino de forma independiente, sin sensibilidad a tildes)
     const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const boundaryEnd = '(?=$|[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ])';
-    const boundaryStart = '(?:^|[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ])';
+    const boundaryEnd = '(?=$|[^a-zA-Z])';
+    const boundaryStart = '(?:^|[^a-zA-Z])';
+    const normalizedPrompt = normalizeSearchText(prompt);
 
     for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
-      const escapedCity = escapeRegex(city);
+      const escapedCity = escapeRegex(normalizeSearchText(city));
       const originCityRegex = new RegExp(
         `${boundaryStart}(?:desde|saliendo\\s+de|saliendo\\s+desde|salgo\\s+de|salgo\\s+desde|soy\\s+de|vivo\\s+en|origen(?:\\s+en|\\s*:)?|volando\\s+desde|vuelo\\s+desde)\\s+${escapedCity}${boundaryEnd}|${boundaryStart}de\\s+${escapedCity}\\s+(?:a|hacia)${boundaryEnd}`,
         'i',
@@ -1600,8 +1629,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         'i',
       );
 
-      const matchedAsOrigin = originCityRegex.test(lower);
-      const matchedAsDest = !ignoreDestination && destCityRegex.test(lower);
+      const matchedAsOrigin = originCityRegex.test(normalizedPrompt);
+      const matchedAsDest = !ignoreDestination && destCityRegex.test(normalizedPrompt);
 
       if (matchedAsOrigin) {
         candidateOrigin = iata;
@@ -1611,7 +1640,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       }
       if (!matchedAsOrigin && !matchedAsDest && !ignoreDestination) {
         const bareCityRegex = new RegExp(`${boundaryStart}${escapedCity}${boundaryEnd}`, 'i');
-        if (bareCityRegex.test(lower)) {
+        if (bareCityRegex.test(normalizedPrompt)) {
           const effectiveOrigin = candidateOrigin || state.draft.originIata;
           if (!effectiveOrigin) {
             candidateOrigin = iata;

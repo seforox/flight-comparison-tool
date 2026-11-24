@@ -57,6 +57,19 @@ describe('AlertParserAgentService (Multi-Skill Conversational Agent)', () => {
   };
 
   describe('Skill 1: DEFINED_SEARCH (Búsqueda Definida)', () => {
+    it('should recognize "Munich" without tilde and "Múnich" with tilde as MUC', async () => {
+      const start = getFutureMonday();
+      const end = addDays(start, 21);
+      const prompt =
+        `Vuelos directos de Madrid a Munich saliendo el lunes y volviendo el miercoles para 1 persona entre el ${formatIso(start)} y el ${formatIso(end)}`;
+
+      const result = await service.chat('user-1', prompt, 'session-munich-no-tilde');
+
+      expect(result.isComplete).toBe(true);
+      expect(result.parsedData?.originIata).toBe('MAD');
+      expect(result.parsedData?.destinationIata).toBe('MUC');
+    });
+
     it('should extract all fields (including directOnly and budgetType when >1 passenger) and ask for confirmation when prompt is complete', async () => {
       const start = getFutureMonday();
       const end = addDays(start, 21);

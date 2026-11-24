@@ -78,14 +78,20 @@ export function AirportSelector({
         })
         .catch(() => {
           if (!active) return;
-          const q = query.trim().toLowerCase();
+          const normalize = (value: string) =>
+            value
+              .trim()
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "");
+          const q = normalize(query);
           setAirports(
             AIRPORTS_CATALOG.filter(
               (a) =>
-                a.city.toLowerCase().includes(q) ||
-                a.iata.toLowerCase().includes(q) ||
-                a.name.toLowerCase().includes(q) ||
-                a.country.toLowerCase().includes(q)
+                normalize(a.city).includes(q) ||
+                normalize(a.iata).includes(q) ||
+                normalize(a.name).includes(q) ||
+                normalize(a.country).includes(q)
             )
           );
         })
