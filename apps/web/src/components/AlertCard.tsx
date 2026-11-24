@@ -8,6 +8,7 @@ import {
   AlertStatus,
   WEEKDAYS,
   getCachedAirport,
+  getTodayIsoDate,
   addDaysToIsoDate,
   validateAlertSearchParams,
 } from "@/lib/api";
@@ -416,6 +417,11 @@ export function AlertCard({
     }
   };
 
+  const todayIso = getTodayIsoDate();
+  const minEditEndDate = addDaysToIsoDate(
+    editStartDate && editStartDate >= todayIso ? editStartDate : todayIso,
+    1
+  );
   const isCompleted = alert.status === "COMPLETED";
   const isInitialSearching = Boolean(alert.isInitialSearching) || waitingSearchStart;
   const nextSearchPhrase = formatNextSearchTimeframe(
@@ -883,6 +889,7 @@ export function AlertCard({
                 </label>
                 <input
                   type="date"
+                  min={todayIso}
                   value={editStartDate}
                   onChange={(e) => setEditStartDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
@@ -895,7 +902,7 @@ export function AlertCard({
                 </label>
                 <input
                   type="date"
-                  min={editStartDate ? addDaysToIsoDate(editStartDate, 1) : undefined}
+                  min={minEditEndDate || undefined}
                   value={editEndDate}
                   onChange={(e) => setEditEndDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-[#0b2545] focus:outline-none focus:border-[#0096c7]"

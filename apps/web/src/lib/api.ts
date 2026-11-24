@@ -207,6 +207,13 @@ export const WEEKDAYS = [
   { value: 7, label: 'Domingo', short: 'Dom' },
 ];
 
+export function getTodayIsoDate(now: Date = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function addDaysToIsoDate(isoDate: string, days: number): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return '';
   const d = new Date(`${isoDate}T00:00:00.000Z`);
@@ -260,6 +267,11 @@ export function validateAlertSearchParams(params: {
   const dest = params.destinationIata.trim().toUpperCase();
   if (origin && dest && origin === dest) {
     return 'El aeropuerto de origen y el de destino no pueden ser el mismo.';
+  }
+
+  const todayIso = getTodayIsoDate();
+  if (params.startDate < todayIso) {
+    return 'La fecha de salida (desde) no puede ser anterior al día actual.';
   }
 
   if (params.startDate > params.endDate) {
