@@ -18,6 +18,7 @@ interface AlertCardProps {
   alert: FlightAlert;
   onRefresh: () => void | Promise<void>;
   collapsibleDates?: boolean;
+  expandDatesTrigger?: number;
   showCompletionPrompt?: boolean;
   onKeepAlert?: (alertId: string) => void;
 }
@@ -166,6 +167,7 @@ export function AlertCard({
   alert,
   onRefresh,
   collapsibleDates = false,
+  expandDatesTrigger = 0,
   showCompletionPrompt = false,
   onKeepAlert,
 }: AlertCardProps) {
@@ -207,6 +209,12 @@ export function AlertCard({
     setEditMaxPriceEur(formatMaxPriceInput(alert.maxPriceEur));
     setEditError(null);
   }, [alert.id, collapsibleDates]);
+
+  useEffect(() => {
+    if (expandDatesTrigger > 0) {
+      setShowDates(true);
+    }
+  }, [expandDatesTrigger]);
 
   useEffect(() => {
     let active = true;
