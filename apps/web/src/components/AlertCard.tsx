@@ -8,6 +8,7 @@ import {
   AlertStatus,
   WEEKDAYS,
   getCachedAirport,
+  getTodayIsoDate,
   addDaysToIsoDate,
   validateAlertSearchParams,
 } from "@/lib/api";
@@ -17,6 +18,7 @@ interface AlertCardProps {
   alert: FlightAlert;
   onRefresh: () => void | Promise<void>;
   collapsibleDates?: boolean;
+  expandDatesTrigger?: number;
   showCompletionPrompt?: boolean;
   onKeepAlert?: (alertId: string) => void;
 }
@@ -165,6 +167,7 @@ export function AlertCard({
   alert,
   onRefresh,
   collapsibleDates = false,
+  expandDatesTrigger = 0,
   showCompletionPrompt = false,
   onKeepAlert,
 }: AlertCardProps) {
@@ -206,6 +209,12 @@ export function AlertCard({
     setEditMaxPriceEur(formatMaxPriceInput(alert.maxPriceEur));
     setEditError(null);
   }, [alert.id, collapsibleDates]);
+
+  useEffect(() => {
+    if (expandDatesTrigger > 0) {
+      setShowDates(true);
+    }
+  }, [expandDatesTrigger]);
 
   useEffect(() => {
     let active = true;
@@ -416,6 +425,11 @@ export function AlertCard({
     }
   };
 
+  const todayIso = getTodayIsoDate();
+  const minEditEndDate = addDaysToIsoDate(
+    editStartDate && editStartDate >= todayIso ? editStartDate : todayIso,
+    1
+  );
   const isCompleted = alert.status === "COMPLETED";
   const isInitialSearching = Boolean(alert.isInitialSearching) || waitingSearchStart;
   const nextSearchPhrase = formatNextSearchTimeframe(
@@ -883,6 +897,7 @@ export function AlertCard({
                 </label>
                 <input
                   type="date"
+                  min={todayIso}
                   value={editStartDate}
                   onChange={(e) => setEditStartDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-[#0b2545] focus:outline-none focus:border-[#0096c7]"
@@ -895,7 +910,7 @@ export function AlertCard({
                 </label>
                 <input
                   type="date"
-                  min={editStartDate ? addDaysToIsoDate(editStartDate, 1) : undefined}
+                  min={minEditEndDate || undefined}
                   value={editEndDate}
                   onChange={(e) => setEditEndDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-[#0b2545] focus:outline-none focus:border-[#0096c7]"

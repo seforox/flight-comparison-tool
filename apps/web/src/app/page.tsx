@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [mobileVisibleCount, setMobileVisibleCount] = useState<number>(3);
   const [isMobileView, setIsMobileView] = useState<boolean>(false);
   const [dismissToast, setDismissToast] = useState(false);
+  const [expandDatesTrigger, setExpandDatesTrigger] = useState(0);
   const [cronPromptedIds, setCronPromptedIds] = useState<Record<string, boolean>>({});
   const seenTriggeredIdsRef = useRef<Set<string>>(new Set());
 
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const [savingTelegram, setSavingTelegram] = useState(false);
 
   const searchesSectionRef = useRef<HTMLDivElement>(null);
+  const activeAlertDetailRef = useRef<HTMLDivElement>(null);
 
   const handleKeepTriggeredAlert = useCallback((alertId: string) => {
     seenTriggeredIdsRef.current.delete(alertId);
@@ -77,6 +79,7 @@ export default function DashboardPage() {
   }, []);
 
   const handleAlertCreated = useCallback(() => {
+    setDismissToast(false);
     loadData(true);
   }, [loadData]);
 
@@ -249,6 +252,38 @@ export default function DashboardPage() {
   const featuredTriggeredAlert =
     alerts.find((a) => a.status === "TRIGGERED" && !a.isInitialSearching) || null;
 
+  const handleOpenTriggeredAlert = (alert: FlightAlert) => {
+    setDismissToast(true);
+
+    if (navTab === "comparador" && latestAlert?.id === alert.id) {
+      activeAlertDetailRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      return;
+    }
+
+    if (statusFilter !== "ALL" && statusFilter !== alert.status) {
+      setStatusFilter("ALL");
+    }
+    if (
+      (directFilter === "DIRECT" && !alert.directOnly) ||
+      (directFilter === "LAYOVER" && alert.directOnly)
+    ) {
+      setDirectFilter("ALL");
+    }
+    setSelectedAlertId(alert.id);
+    setExpandDatesTrigger((prev) => prev + 1);
+    setNavTab("alertas");
+
+    setTimeout(() => {
+      activeAlertDetailRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#0b2545]">
       {/* Barra superior blanca (Navbar estilo V Flights, responsiva en móvil y escritorio) */}
@@ -272,7 +307,10 @@ export default function DashboardPage() {
               <button
                 type="button"
                 aria-current={navTab === "comparador" ? "page" : undefined}
-                onClick={() => setNavTab("comparador")}
+                onClick={() => {
+                  setExpandDatesTrigger(0);
+                  setNavTab("comparador");
+                }}
                 className={`px-5 py-2.5 rounded-full text-sm lg:text-[15px] font-bold flex items-center gap-2 transition-all cursor-pointer ${
                   navTab === "comparador"
                     ? "bg-gradient-to-r from-[#0b2545] via-[#0e3968] to-[#0077b6] text-white shadow-md shadow-[#0b2545]/25 ring-1 ring-cyan-300/30"
@@ -287,6 +325,7 @@ export default function DashboardPage() {
                 type="button"
                 aria-current={navTab === "alertas" ? "page" : undefined}
                 onClick={() => {
+                  setExpandDatesTrigger(0);
                   setNavTab("alertas");
                   searchesSectionRef.current?.scrollIntoView({
                     behavior: "smooth",
@@ -358,7 +397,10 @@ export default function DashboardPage() {
             <button
               type="button"
               aria-current={navTab === "comparador" ? "page" : undefined}
-              onClick={() => setNavTab("comparador")}
+              onClick={() => {
+                setExpandDatesTrigger(0);
+                setNavTab("comparador");
+              }}
               className={`flex-1 justify-center px-3.5 py-2 rounded-full text-sm font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 navTab === "comparador"
                   ? "bg-gradient-to-r from-[#0b2545] via-[#0e3968] to-[#0077b6] text-white shadow-sm"
@@ -373,6 +415,7 @@ export default function DashboardPage() {
               type="button"
               aria-current={navTab === "alertas" ? "page" : undefined}
               onClick={() => {
+                setExpandDatesTrigger(0);
                 setNavTab("alertas");
                 searchesSectionRef.current?.scrollIntoView({
                   behavior: "smooth",
@@ -499,7 +542,10 @@ export default function DashboardPage() {
               {alerts.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => setNavTab("alertas")}
+                  onClick={() => {
+                    setExpandDatesTrigger(0);
+                    setNavTab("alertas");
+                  }}
                   className="px-3.5 py-1.5 rounded-full bg-white hover:bg-sky-50 border border-slate-200 hover:border-cyan-300 text-xs font-semibold text-[#0077b6] transition cursor-pointer shadow-2xs"
                 >
                   Ver todas en Mis alertas ({alerts.length}) →
@@ -521,15 +567,17 @@ export default function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <AlertCard
-                alert={latestAlert}
-                onRefresh={loadData}
-                showCompletionPrompt={Boolean(
-                  latestAlert.pendingCompletionPrompt ||
-                    cronPromptedIds[latestAlert.id]
-                )}
-                onKeepAlert={handleKeepTriggeredAlert}
-              />
+              <div ref={activeAlertDetailRef} className="scroll-mt-36 md:scroll-mt-24">
+                <AlertCard
+                  alert={latestAlert}
+                  onRefresh={loadData}
+                  showCompletionPrompt={Boolean(
+                    latestAlert.pendingCompletionPrompt ||
+                      cronPromptedIds[latestAlert.id]
+                  )}
+                  onKeepAlert={handleKeepTriggeredAlert}
+                />
+              </div>
             )}
           </div>
         ) : (
@@ -720,7 +768,10 @@ export default function DashboardPage() {
                         key={item.id}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => setSelectedAlertId(item.id)}
+                        onClick={() => {
+                          setExpandDatesTrigger(0);
+                          setSelectedAlertId(item.id);
+                        }}
                         className={`snap-start text-left rounded-2xl p-4 transition-all cursor-pointer border ${
                           isCompleted
                             ? isSelected
@@ -793,16 +844,19 @@ export default function DashboardPage() {
 
                 {/* Vista detallada de la alerta seleccionada */}
                 {selectedAlert && (
-                  <AlertCard
-                    alert={selectedAlert}
-                    onRefresh={loadData}
-                    collapsibleDates
-                    showCompletionPrompt={Boolean(
-                      selectedAlert.pendingCompletionPrompt ||
-                        cronPromptedIds[selectedAlert.id]
-                    )}
-                    onKeepAlert={handleKeepTriggeredAlert}
-                  />
+                  <div ref={activeAlertDetailRef} className="scroll-mt-36 md:scroll-mt-24">
+                    <AlertCard
+                      alert={selectedAlert}
+                      onRefresh={loadData}
+                      collapsibleDates
+                      expandDatesTrigger={expandDatesTrigger}
+                      showCompletionPrompt={Boolean(
+                        selectedAlert.pendingCompletionPrompt ||
+                          cronPromptedIds[selectedAlert.id]
+                      )}
+                      onKeepAlert={handleKeepTriggeredAlert}
+                    />
+                  </div>
                 )}
               </>
             )}
@@ -825,48 +879,50 @@ export default function DashboardPage() {
               : "bg-[#e7f8ef] border-emerald-300/90"
           }`}
         >
-          <div className="flex items-center gap-3">
-            <span
-              aria-hidden="true"
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                featuredTriggeredAlert.pendingCompletionPrompt ||
-                cronPromptedIds[featuredTriggeredAlert.id]
-                  ? "bg-amber-400/25 text-amber-800"
-                  : "bg-emerald-500/20 text-emerald-700"
-              }`}
-            >
-              {featuredTriggeredAlert.pendingCompletionPrompt ||
-              cronPromptedIds[featuredTriggeredAlert.id]
-                ? "⏰"
-                : "✓"}
-            </span>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setSelectedAlertId(featuredTriggeredAlert.id)}
-              className="text-left cursor-pointer pr-2 flex-1"
+              onClick={() => handleOpenTriggeredAlert(featuredTriggeredAlert)}
+              className="flex items-center gap-3 text-left cursor-pointer pr-2 flex-1 min-w-0"
             >
-              <div className="text-xs font-extrabold text-[#0b2545]">
-                {(() => {
-                  const toastPrice = getBestPriceForAlert(featuredTriggeredAlert);
-                  return toastPrice !== null
-                    ? `¡Vuelo encontrado desde ${toastPrice} €!`
-                    : "¡Vuelo encontrado!";
-                })()}{" "}
-                ({getCityName(featuredTriggeredAlert.originIata)} →{" "}
-                {getCityName(featuredTriggeredAlert.destinationIata)})
-              </div>
-              <div className="text-[11px] font-medium text-slate-600 mt-0.5">
+              <span
+                aria-hidden="true"
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                  featuredTriggeredAlert.pendingCompletionPrompt ||
+                  cronPromptedIds[featuredTriggeredAlert.id]
+                    ? "bg-amber-400/25 text-amber-800"
+                    : "bg-emerald-500/20 text-emerald-700"
+                }`}
+              >
                 {featuredTriggeredAlert.pendingCompletionPrompt ||
                 cronPromptedIds[featuredTriggeredAlert.id]
-                  ? "Sigue sin completarse tras la revisión periódica. ¿Quieres completarla o mantenerla?"
-                  : "Pulsa para ver las fechas encontradas"}
+                  ? "⏰"
+                  : "✓"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-extrabold text-[#0b2545]">
+                  {(() => {
+                    const toastPrice = getBestPriceForAlert(featuredTriggeredAlert);
+                    return toastPrice !== null
+                      ? `¡Vuelo encontrado desde ${toastPrice} €!`
+                      : "¡Vuelo encontrado!";
+                  })()}{" "}
+                  ({getCityName(featuredTriggeredAlert.originIata)} →{" "}
+                  {getCityName(featuredTriggeredAlert.destinationIata)})
+                </div>
+                <div className="text-[11px] font-medium text-slate-600 mt-0.5">
+                  {featuredTriggeredAlert.pendingCompletionPrompt ||
+                  cronPromptedIds[featuredTriggeredAlert.id]
+                    ? "Sigue sin completarse tras la revisión periódica. ¿Quieres completarla o mantenerla?"
+                    : "Pulsa para ver las fechas encontradas"}
+                </div>
               </div>
             </button>
             <button
               type="button"
               aria-label="Cerrar aviso de vuelo encontrado"
               onClick={() => setDismissToast(true)}
-              className="text-slate-500 hover:text-slate-800 text-xs font-bold ml-auto p-1 cursor-pointer"
+              className="text-slate-500 hover:text-slate-800 text-xs font-bold ml-auto p-1 cursor-pointer shrink-0"
             >
               ✕
             </button>

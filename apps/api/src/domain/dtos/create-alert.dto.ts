@@ -45,9 +45,16 @@ export function extractUtcDateKey(value?: string | Date | null): string | null {
   return parsed.toISOString().slice(0, 10);
 }
 
+export function getTodayUtcDateKey(referenceDate: Date = new Date()): string {
+  return referenceDate.toISOString().slice(0, 10);
+}
+
 const dateCalculator = new FlightDateCalculatorService();
 
-export function validateAlertSearchRules(input: AlertSearchValidationInput): string[] {
+export function validateAlertSearchRules(
+  input: AlertSearchValidationInput,
+  referenceDate: Date = new Date(),
+): string[] {
   const errors: string[] = [];
 
   const origin = (input.originIata || '').trim().toUpperCase();
@@ -56,37 +63,52 @@ export function validateAlertSearchRules(input: AlertSearchValidationInput): str
     errors.push('El aeropuerto de origen y el de destino no pueden ser el mismo.');
   }
 
+  const todayKey = getTodayUtcDateKey(referenceDate);
+
   if (input.startDate !== undefined && input.endDate !== undefined) {
     const startKey = extractUtcDateKey(input.startDate);
     const endKey = extractUtcDateKey(input.endDate);
 
     if (!startKey || !endKey) {
       errors.push('Las fechas de inicio y fin deben ser válidas.');
-    } else if (startKey > endKey) {
-      errors.push('La fecha de inicio no puede ser posterior a la fecha de fin.');
-    } else if (startKey === endKey) {
-      errors.push(
-        'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
-      );
-    } else if (
-      input.departureDay !== undefined &&
-      input.returnDay !== undefined &&
-      input.departureDay >= 1 &&
-      input.departureDay <= 7 &&
-      input.returnDay >= 1 &&
-      input.returnDay <= 7
-    ) {
-      const tuples = dateCalculator.generateDateTuples(
-        new Date(`${startKey}T00:00:00.000Z`),
-        new Date(`${endKey}T23:59:59.999Z`),
-        input.departureDay,
-        input.returnDay,
-      );
-      if (tuples.length === 0) {
-        errors.push(
-          'No hay ninguna combinación válida de ida y vuelta para los días seleccionados dentro de ese rango de fechas (la vuelta debe ser un día posterior dentro del rango).',
-        );
+    } else {
+      if (startKey < todayKey) {
+        errors.push('La fecha de salida (desde) no puede ser anterior al día actual.');
       }
+
+      if (startKey > endKey) {
+        errors.push('La fecha de inicio no puede ser posterior a la fecha de fin.');
+      } else if (startKey === endKey) {
+        errors.push(
+          'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
+        );
+      } else if (
+        input.departureDay !== undefined &&
+        input.returnDay !== undefined &&
+        input.departureDay >= 1 &&
+        input.departureDay <= 7 &&
+        input.returnDay >= 1 &&
+        input.returnDay <= 7
+      ) {
+        const tuples = dateCalculator.generateDateTuples(
+          new Date(`${startKey}T00:00:00.000Z`),
+          new Date(`${endKey}T23:59:59.999Z`),
+          input.departureDay,
+          input.returnDay,
+        );
+        if (tuples.length === 0) {
+          errors.push(
+            'No hay ninguna combinación válida de ida y vuelta para los días seleccionados dentro de ese rango de fechas (la vuelta debe ser un día posterior dentro del rango).',
+          );
+        }
+      }
+    }
+  } else if (input.startDate !== undefined) {
+    const startKey = extractUtcDateKey(input.startDate);
+    if (!startKey) {
+      errors.push('La fecha de salida debe ser válida.');
+    } else if (startKey < todayKey) {
+      errors.push('La fecha de salida (desde) no puede ser anterior al día actual.');
     }
   }
 
@@ -130,7 +152,7 @@ class ValidAlertDateRangeConstraint implements ValidatorConstraintInterface {
       endDate: dto.endDate,
     });
     return (
-      errors[0] ||
+      errors.join(' ') ||
       'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).'
     );
   }

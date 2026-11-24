@@ -45,7 +45,7 @@ El chat de **Vera** combina lenguaje natural libre con controles asistidos para 
 Se cuidaron específicamente los puntos de ruptura para dispositivos móviles:
 - **Barra de navegación móvil dedicada:** En pantallas menores de `768px` (`md:hidden`), las pestañas *Comparador* y *Mis alertas (N)* se sitúan en una segunda fila de ancho completo dentro del `header` para evitar solapamientos con los botones de *Telegram* y *Salir*.
 - **Paginación por Scroll en "Mis alertas" (Móvil):** En pantallas móviles (`< 640px`), la lista de mini-tarjetas muestra inicialmente un máximo de **3 alertas visibles** dentro de un contenedor con `overflow-y-auto` y `snap-y`, cargando progresivamente de 3 en 3 a medida que el usuario desliza hacia abajo (`onScroll`).
-- **Prevención de solapamiento de elementos flotantes:** En móvil, el botón flotante de Vera ocupa el ancho inferior (`bottom-4 left-4 right-4`), y el *toast* de aviso de vuelo encontrado se eleva automáticamente a `bottom-24` para no tapar nunca el acceso al chat.
+- **Prevención de solapamiento de elementos flotantes:** En móvil (`< 640px`), el acceso minimizado a Vera se presenta como un botón circular compacto (`56×56 px`) fijado en la esquina inferior derecha (`bottom-4 right-4`) con indicador de actividad, mientras que en escritorio muestra la tarjeta completa con descripción. El *toast* de aviso de vuelo encontrado se posiciona en `bottom-20` en móvil para no tapar nunca el botón del chat.
 
 ---
 

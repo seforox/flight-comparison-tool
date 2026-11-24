@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   api,
   WEEKDAYS,
+  getTodayIsoDate,
   addDaysToIsoDate,
   validateAlertSearchParams,
 } from "@/lib/api";
@@ -98,8 +99,28 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
     const nextMonthLastDay = new Date(nextYear, nextMonthIdx + 1, 0).getDate();
     const nextMonthLastDayStr = String(nextMonthLastDay).padStart(2, "0");
 
+    const afterNextMonthDate = new Date(curYear, curMonthIdx + 2, 1);
+    const afterNextYear = afterNextMonthDate.getFullYear();
+    const afterNextMonthIdx = afterNextMonthDate.getMonth();
+    const afterNextMonthNum = String(afterNextMonthIdx + 1).padStart(2, "0");
+    const afterNextMonthLastDay = new Date(
+      afterNextYear,
+      afterNextMonthIdx + 1,
+      0
+    ).getDate();
+    const afterNextMonthLastDayStr = String(afterNextMonthLastDay).padStart(
+      2,
+      "0"
+    );
+
     const presets: Array<{ label: string; start: string; end: string }> = [];
-    if (curDay < curMonthLastDay) {
+    if (curDay === 1) {
+      presets.push({
+        label: monthsFull[curMonthIdx],
+        start: `${curYear}-${curMonthNum}-01`,
+        end: `${curYear}-${curMonthNum}-${curMonthLastDayStr}`,
+      });
+    } else if (curDay < curMonthLastDay) {
       presets.push({
         label: `${curDay}–${curMonthLastDay} ${monthsShort[curMonthIdx]}`,
         start: `${curYear}-${curMonthNum}-${curDayStr}`,
@@ -108,19 +129,25 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
     }
     presets.push(
       {
-        label: monthsFull[curMonthIdx],
-        start: `${curYear}-${curMonthNum}-01`,
-        end: `${curYear}-${curMonthNum}-${curMonthLastDayStr}`,
-      },
-      {
         label: monthsFull[nextMonthIdx],
         start: `${nextYear}-${nextMonthNum}-01`,
         end: `${nextYear}-${nextMonthNum}-${nextMonthLastDayStr}`,
+      },
+      {
+        label: monthsFull[afterNextMonthIdx],
+        start: `${afterNextYear}-${afterNextMonthNum}-01`,
+        end: `${afterNextYear}-${afterNextMonthNum}-${afterNextMonthLastDayStr}`,
       },
     );
 
     return presets;
   }, []);
+
+  const todayIso = getTodayIsoDate();
+  const minEndDate = addDaysToIsoDate(
+    startDate && startDate >= todayIso ? startDate : todayIso,
+    1
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -312,6 +339,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <input
             id="field-start-date"
             type="date"
+            min={todayIso}
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             placeholder="AAAA-MM-DD"
@@ -331,7 +359,7 @@ export function CreateAlertForm({ onAlertCreated }: CreateAlertFormProps) {
           <input
             id="field-end-date"
             type="date"
-            min={startDate ? addDaysToIsoDate(startDate, 1) : undefined}
+            min={minEndDate || undefined}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             placeholder="AAAA-MM-DD"

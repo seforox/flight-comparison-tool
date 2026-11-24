@@ -7,8 +7,13 @@ import { AlertSchedulerService } from './alert-scheduler.service';
 import { IgnavAdapter } from '../../infrastructure/adapters/ignav.adapter';
 import {
   extractUtcDateKey,
+  getTodayUtcDateKey,
   validateAlertSearchRules,
 } from '../../domain/dtos/create-alert.dto';
+import {
+  normalizeSearchText,
+  sqlNormalizeColumn,
+} from '../controllers/airports.controller';
 
 export type AgentSkill = 'DEFINED_SEARCH' | 'DESTINATION_RECOMMENDER';
 
@@ -141,6 +146,18 @@ const CITY_TO_IATA: Record<string, string> = {
   oporto: 'OPO',
   berlin: 'BER',
   berlín: 'BER',
+  munich: 'MUC',
+  múnich: 'MUC',
+  munchen: 'MUC',
+  münchen: 'MUC',
+  frankfurt: 'FRA',
+  francfort: 'FRA',
+  fráncfort: 'FRA',
+  estocolmo: 'STO',
+  copenhague: 'CPH',
+  oslo: 'OSL',
+  varsovia: 'WAW',
+  cracovia: 'KRK',
   bruselas: 'BRU',
   viena: 'VIE',
   praga: 'PRG',
@@ -822,13 +839,14 @@ export class AlertParserAgentService {
     }
 
     try {
+      const todayUtc = getTodayUtcDateKey();
       const currentYear = new Date().getUTCFullYear();
       const pendingContext = state.pendingRecommendationPrompt
         ? `\nSolicitud previa de recomendación pendiente: "${state.pendingRecommendationPrompt}"`
         : '';
 
       const systemPrompt = `Eres Vera, una asistente experta en vuelos que opera bajo las siguientes SKILL.md cargadas dinámicamente.
-Fecha actual UTC: ${new Date().toISOString().split('T')[0]} (año actual: ${currentYear}).
+Fecha actual UTC: ${todayUtc} (año actual: ${currentYear}).
 
 === SKILL 1: DEFINED_SEARCH ===
 ${this.skillsContent.DEFINED_SEARCH}
@@ -840,6 +858,7 @@ Estado actual del borrador de la sesión: ${JSON.stringify(state.draft)}${pendin
 IMPORTANTE:
 - En DESTINATION_RECOMMENDER, si "originIata" NO está definido ni en el borrador ni en el mensaje actual del usuario, NO devuelvas recomendaciones ("recommendations": null) y pregúntale primero desde qué ciudad o aeropuerto vas a salir.
 - NUNCA permitas que "originIata" y "destinationIata" sean el mismo aeropuerto (ej. Madrid a Madrid / MAD a MAD), ni recomiendes el mismo aeropuerto de origen. Si ocurre, deja "destinationIata": null y explica claramente que el origen y el destino no pueden ser el mismo aeropuerto.
+- NUNCA permitas búsquedas cuya fecha de salida ("startDate") sea anterior al día actual (${todayUtc}). Si el usuario indica una fecha de salida en el pasado, deja "startDate": null y "endDate": null y explica claramente que la fecha de salida no puede ser anterior al día actual. Si menciona el mes en curso ("este mes" o el mes actual), fija "startDate" en ${todayUtc} en lugar del día 01.
 - NUNCA permitas búsquedas de ida y vuelta para el mismo día ("startDate" === "endDate", ej. 23/11/2026 y volver el 23/11/2026) ni "startDate" > "endDate". Si ocurre, deja "startDate": null y "endDate": null y explica claramente que no se permiten búsquedas en el mismo día.
 - El número de pasajeros ("adults") es OBLIGATORIO (entero del 1 al 9, o null si el usuario aún no lo ha indicado). NUNCA asumas 1 por defecto: si "adults" aún no está definido en el borrador ni en el mensaje actual, DEBES preguntarle explícitamente cuántos pasajeros viajan.
 - El presupuesto máximo ("maxPriceEur") es OPCIONAL (null si el usuario no fija un tope de precio, lo que equivale a buscar "Más barato posible"). Tanto en DESTINATION_RECOMMENDER como en DEFINED_SEARCH, si hay más de 1 pasajero ("adults" > 1) y el usuario SÍ ha indicado un presupuesto máximo ("maxPriceEur"), pero no se ha aclarado si es por persona o total ("budgetType" no definido), DEBES preguntar explícitamente si ese presupuesto es **máximo por persona o máximo total** ("budgetType": "PER_PERSON" | "TOTAL" | null).
@@ -943,6 +962,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         }
 
         // Regla obligatoria en DESTINATION_RECOMMENDER: pedir origen (y aclarar presupuesto por persona vs total si hay >1 pasajero) antes de buscar
+        const warningPrefix =
+          validationErrors.length > 0 ? `⚠️ ${validationErrors.join(' ')}\n\n` : '';
         if (
           state.activeSkill === 'DESTINATION_RECOMMENDER' &&
           !state.draft.originIata &&
@@ -953,7 +974,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             state.pendingRecommendationPrompt = prompt;
           }
           const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
-          const askBothReply = `Antes de realizar la búsqueda y recomendarte destinos, ¿desde qué ciudad o aeropuerto vas a salir? Además, al ser ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR es máximo por persona o máximo total?`;
+          const askBothReply = `${warningPrefix}Antes de realizar la búsqueda y recomendarte destinos, ¿desde qué ciudad o aeropuerto vas a salir? Además, al ser ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR es máximo por persona o máximo total?`;
           return {
             sessionId,
             activeSkill: 'DESTINATION_RECOMMENDER',
@@ -971,7 +992,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             state.pendingRecommendationPrompt = prompt;
           }
           const askOriginReply =
-            'Antes de realizar la búsqueda y recomendarte destinos (comprobando si tienen vuelos directos o con escalas), ¿desde qué ciudad o aeropuerto vas a salir?';
+            `${warningPrefix}Antes de realizar la búsqueda y recomendarte destinos (comprobando si tienen vuelos directos o con escalas), ¿desde qué ciudad o aeropuerto vas a salir?`;
           return {
             sessionId,
             activeSkill: 'DESTINATION_RECOMMENDER',
@@ -992,7 +1013,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
             state.pendingRecommendationPrompt = prompt;
           }
           const rawBudget = state.draft.rawMaxPriceEur ?? state.draft.maxPriceEur;
-          const askBudgetTypeReply = `Antes de realizar la búsqueda para los ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR que has indicado es máximo por persona o máximo total?`;
+          const askBudgetTypeReply = `${warningPrefix}Antes de realizar la búsqueda para los ${state.draft.adults} pasajeros, ¿el presupuesto máximo de ${rawBudget} EUR que has indicado es máximo por persona o máximo total?`;
           return {
             sessionId,
             activeSkill: 'DESTINATION_RECOMMENDER',
@@ -1323,15 +1344,18 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (!candidate || candidate.length < 3 || candidate.length > 40) return;
 
     try {
+      const normalizedCandidate = normalizeSearchText(candidate);
+      const normCity = sqlNormalizeColumn('city');
+      const normName = sqlNormalizeColumn('name');
       const rows = await (this.prisma as any).$queryRawUnsafe(
         `SELECT "iata" FROM "Airport"
-         WHERE LOWER("city") = LOWER($1)
-            OR LOWER("name") LIKE LOWER($2)
-            OR LOWER("city") LIKE LOWER($2)
+         WHERE ${normCity} = $1
+            OR ${normName} LIKE $2
+            OR ${normCity} LIKE $2
          ORDER BY "popularity" DESC
          LIMIT 1`,
-        candidate,
-        `${candidate}%`,
+        normalizedCandidate,
+        `${normalizedCandidate}%`,
       );
       if (rows?.[0]?.iata) {
         state.draft.originIata = String(rows[0].iata).toUpperCase();
@@ -1342,11 +1366,12 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
   }
 
   private extractOriginFromReply(prompt: string, state: SessionState): void {
-    const lower = prompt.toLowerCase().trim();
+    const normalizedLower = normalizeSearchText(prompt);
 
     for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
-      const regex = new RegExp(`(?:^|\\b)${city}(?:\\b|$)`, 'i');
-      if (regex.test(lower)) {
+      const normalizedCity = normalizeSearchText(city);
+      const regex = new RegExp(`(?:^|\\b)${normalizedCity}(?:\\b|$)`, 'i');
+      if (regex.test(normalizedLower)) {
         state.draft.originIata = iata;
         return;
       }
@@ -1367,9 +1392,15 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     if (/(?:de|desde)\s+[A-Z]{3}\s+(?:a|hacia)\s+[A-Z]{3}/.test(prompt)) {
       return true;
     }
-    const lower = prompt.toLowerCase();
+    const normalized = normalizeSearchText(prompt);
     for (const cityA of Object.keys(CITY_TO_IATA)) {
-      if (lower.includes(`de ${cityA} a `) || lower.includes(`desde ${cityA} a `) || lower.includes(`de ${cityA} hacia `) || lower.includes(`desde ${cityA} hacia `)) {
+      const normCityA = normalizeSearchText(cityA);
+      if (
+        normalized.includes(`de ${normCityA} a `) ||
+        normalized.includes(`desde ${normCityA} a `) ||
+        normalized.includes(`de ${normCityA} hacia `) ||
+        normalized.includes(`desde ${normCityA} hacia `)
+      ) {
         return true;
       }
     }
@@ -1378,9 +1409,11 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
 
   private hasExplicitDestinationChoice(prompt: string, recommendations?: DestinationRecommendation[]): boolean {
     if (!recommendations || recommendations.length === 0) return false;
-    const lower = prompt.toLowerCase();
+    const normalized = normalizeSearchText(prompt);
     return recommendations.some(
-      r => lower.includes(r.city.toLowerCase().split(' ')[0]) || prompt.toUpperCase().includes(r.iataCode),
+      r =>
+        normalized.includes(normalizeSearchText(r.city.split(' ')[0])) ||
+        prompt.toUpperCase().includes(r.iataCode),
     );
   }
 
@@ -1512,6 +1545,18 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
           }
         }
       }
+    } else if (draft.startDate) {
+      const startKey = extractUtcDateKey(draft.startDate);
+      const todayKey = getTodayUtcDateKey();
+      if (!startKey) {
+        draft.startDate = undefined;
+        addUniqueError('La fecha de salida debe ser válida.');
+      } else if (startKey < todayKey) {
+        draft.startDate = undefined;
+        addUniqueError('La fecha de salida (desde) no puede ser anterior al día actual.');
+      } else {
+        draft.startDate = startKey;
+      }
     }
 
     return errors;
@@ -1567,13 +1612,14 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       }
     }
 
-    // 2. Extraer por nombres de ciudades del catálogo general (comprobando origen y destino de forma independiente)
+    // 2. Extraer por nombres de ciudades del catálogo general (comprobando origen y destino de forma independiente, sin sensibilidad a tildes)
     const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const boundaryEnd = '(?=$|[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ])';
-    const boundaryStart = '(?:^|[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ])';
+    const boundaryEnd = '(?=$|[^a-zA-Z])';
+    const boundaryStart = '(?:^|[^a-zA-Z])';
+    const normalizedPrompt = normalizeSearchText(prompt);
 
     for (const [city, iata] of Object.entries(CITY_TO_IATA)) {
-      const escapedCity = escapeRegex(city);
+      const escapedCity = escapeRegex(normalizeSearchText(city));
       const originCityRegex = new RegExp(
         `${boundaryStart}(?:desde|saliendo\\s+de|saliendo\\s+desde|salgo\\s+de|salgo\\s+desde|soy\\s+de|vivo\\s+en|origen(?:\\s+en|\\s*:)?|volando\\s+desde|vuelo\\s+desde)\\s+${escapedCity}${boundaryEnd}|${boundaryStart}de\\s+${escapedCity}\\s+(?:a|hacia)${boundaryEnd}`,
         'i',
@@ -1583,8 +1629,8 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
         'i',
       );
 
-      const matchedAsOrigin = originCityRegex.test(lower);
-      const matchedAsDest = !ignoreDestination && destCityRegex.test(lower);
+      const matchedAsOrigin = originCityRegex.test(normalizedPrompt);
+      const matchedAsDest = !ignoreDestination && destCityRegex.test(normalizedPrompt);
 
       if (matchedAsOrigin) {
         candidateOrigin = iata;
@@ -1594,7 +1640,7 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
       }
       if (!matchedAsOrigin && !matchedAsDest && !ignoreDestination) {
         const bareCityRegex = new RegExp(`${boundaryStart}${escapedCity}${boundaryEnd}`, 'i');
-        if (bareCityRegex.test(lower)) {
+        if (bareCityRegex.test(normalizedPrompt)) {
           const effectiveOrigin = candidateOrigin || state.draft.originIata;
           if (!effectiveOrigin) {
             candidateOrigin = iata;
@@ -1729,35 +1775,68 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     this.recalculateMaxPriceEur(state.draft);
 
     // 6. Fechas explícitas (YYYY-MM-DD, DD/MM/YYYY, "23 de noviembre de 2026") o deducción por mes/expresión temporal
+    const todayKey = getTodayUtcDateKey();
     const explicitDates = this.extractExplicitDates(prompt);
     const mentionsSameDay =
       /\b(?:el\s+mismo\s+d[ií]a|en\s+el\s+mismo\s+d[ií]a|para\s+el\s+mismo\s+d[ií]a|ida\s+y\s+vuelta\s+en\s+el\s+d[ií]a|volver\s+el\s+mismo\s+d[ií]a)\b/i.test(
         lower,
       );
+    const mentionsPastRelativeDay = /\b(?:ayer|anteayer)\b/i.test(lower);
 
     if (explicitDates.length >= 2) {
       const [firstDate, secondDate] = explicitDates;
+      let hasDateError = false;
+      if (firstDate < todayKey) {
+        addError('La fecha de salida (desde) no puede ser anterior al día actual.');
+        hasDateError = true;
+      }
       if (firstDate === secondDate) {
-        state.draft.startDate = undefined;
-        state.draft.endDate = undefined;
         addError(
           'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
         );
+        hasDateError = true;
       } else if (firstDate > secondDate) {
+        addError('La fecha de inicio no puede ser posterior a la fecha de fin.');
+        hasDateError = true;
+      }
+      if (hasDateError) {
         state.draft.startDate = undefined;
         state.draft.endDate = undefined;
-        addError('La fecha de inicio no puede ser posterior a la fecha de fin.');
       } else {
         state.draft.startDate = firstDate;
         state.draft.endDate = secondDate;
       }
-    } else if (mentionsSameDay) {
+    } else if (explicitDates.length === 1) {
+      const singleDate = explicitDates[0];
+      if (mentionsSameDay) {
+        state.draft.startDate = undefined;
+        state.draft.endDate = undefined;
+        if (singleDate < todayKey) {
+          addError('La fecha de salida (desde) no puede ser anterior al día actual.');
+        }
+        addError(
+          'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
+        );
+      } else if (singleDate < todayKey) {
+        state.draft.startDate = undefined;
+        addError('La fecha de salida (desde) no puede ser anterior al día actual.');
+      } else if (state.draft.startDate && !state.draft.endDate) {
+        state.draft.endDate = singleDate;
+      } else {
+        state.draft.startDate = singleDate;
+      }
+    } else if (mentionsSameDay || mentionsPastRelativeDay) {
       state.draft.startDate = undefined;
       state.draft.endDate = undefined;
-      addError(
-        'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
-      );
-    } else if (explicitDates.length === 0) {
+      if (mentionsPastRelativeDay) {
+        addError('La fecha de salida (desde) no puede ser anterior al día actual.');
+      }
+      if (mentionsSameDay) {
+        addError(
+          'No se permiten búsquedas de ida y vuelta en el mismo día. La fecha de regreso (hasta) debe ser posterior a la fecha de salida (desde).',
+        );
+      }
+    } else {
       const deduced = this.deduceMonthRange(lower);
       if (deduced) {
         state.draft.startDate = deduced.startDate;
@@ -1820,8 +1899,14 @@ Responde EXCLUSIVAMENTE un objeto JSON válido con la estructura:
     // Día 0 del mes siguiente en UTC nos da el último día exacto del mes (28, 29, 30 o 31)
     const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
     const dd = String(lastDay).padStart(2, '0');
+
+    const now = new Date();
+    const isCurrentMonth =
+      year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
+    const startDate = isCurrentMonth ? getTodayUtcDateKey(now) : `${year}-${mm}-01`;
+
     return {
-      startDate: `${year}-${mm}-01`,
+      startDate,
       endDate: `${year}-${mm}-${dd}`,
     };
   }

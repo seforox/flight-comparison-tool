@@ -21,27 +21,46 @@ interface AgentChatbotProps {
   onAlertCreated: () => void;
 }
 
-const SUGGESTED_PROMPTS = [
-  {
-    label: "Vuelos baratos a Roma de viernes a domingo en noviembre",
-    prompt:
-      "Vuelos de MAD a ROM saliendo el viernes y volviendo el domingo para 1 persona por menos de 95 euros en noviembre de este año",
-  },
-  {
-    label: "Escapada de finde de Barcelona a Lisboa por menos de 80 €",
-    prompt:
-      "Vuelos de BCN a LIS saliendo el viernes y volviendo el domingo para 1 persona por menos de 80 euros en noviembre de este año",
-  },
-  {
-    label: "Madrid a Nueva York en agosto, 2 personas, directo",
-    prompt:
-      "Vuelos de MAD a JFK saliendo el lunes y volviendo el domingo para 2 personas por menos de 450 euros en agosto de este año",
-  },
-  {
-    label: "✨ Recomiéndame 5 destinos baratos de playa o montaña",
-    prompt: "Recomiéndame 5 sitios baratos con playa para escaparme",
-  },
+const MONTHS_ES = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
 ];
+
+function buildSuggestedPrompts() {
+  const now = new Date();
+  const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextMonthName = MONTHS_ES[nextMonthDate.getMonth()];
+
+  return [
+    {
+      label: `Vuelos baratos a Roma de viernes a domingo en ${nextMonthName}`,
+      prompt: `Vuelos de MAD a ROM saliendo el viernes y volviendo el domingo para 1 persona por menos de 95 euros el mes que viene`,
+    },
+    {
+      label: "Escapada de finde de Barcelona a Lisboa por menos de 80 €",
+      prompt: `Vuelos de BCN a LIS saliendo el viernes y volviendo el domingo para 1 persona por menos de 80 euros el mes que viene`,
+    },
+    {
+      label: "Madrid a Nueva York en agosto, 2 personas, directo",
+      prompt:
+        "Vuelos directos de MAD a JFK saliendo el lunes y volviendo el domingo para 2 personas por menos de 450 euros en agosto",
+    },
+    {
+      label: "✨ Recomiéndame 5 destinos baratos de playa o montaña",
+      prompt: "Recomiéndame 5 sitios baratos con playa para escaparme",
+    },
+  ];
+}
 
 export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -59,6 +78,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
     },
   ]);
 
+  const suggestedPrompts = React.useMemo(() => buildSuggestedPrompts(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -640,7 +660,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                     : "flex flex-col items-start gap-1.5 max-h-44 overflow-y-auto"
                 }
               >
-                {SUGGESTED_PROMPTS.map((item) => (
+                {suggestedPrompts.map((item) => (
                   <button
                     key={item.label}
                     type="button"
@@ -670,7 +690,7 @@ export function AgentChatbot({ onAlertCreated }: AgentChatbotProps) {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ej.: vuelos a Roma de viernes a domingo en noviembre..."
+                placeholder="Ej.: vuelos a Roma de viernes a domingo el mes que viene..."
                 className="w-full pl-3.5 pr-20 py-2.5 rounded-2xl bg-[#f8fafc] border border-slate-200 text-xs text-[#0b2545] placeholder-slate-400 focus:outline-none focus:border-[#0096c7]"
               />
               <button

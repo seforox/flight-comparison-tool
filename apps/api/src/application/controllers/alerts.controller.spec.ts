@@ -39,20 +39,81 @@ describe('AlertsController (Validación de búsquedas)', () => {
     controller = new AlertsController(mockPrisma, mockScheduler);
   });
 
-  const buildValidDto = (overrides: Partial<CreateAlertDto> = {}): CreateAlertDto => ({
-    originIata: 'MAD',
-    destinationIata: 'LON',
-    departureDay: 1,
-    returnDay: 3,
-    adults: 1,
-    directOnly: true,
-    maxPriceEur: 120,
-    startDate: '2026-11-23T00:00:00.000Z',
-    endDate: '2026-11-30T23:59:59.999Z',
-    ...overrides,
-  });
+  const formatIsoDate = (date: Date): string => date.toISOString().slice(0, 10);
+
+  const getFutureMonday = (minDaysAhead = 7): Date => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() + minDaysAhead);
+    while (d.getUTCDay() !== 1) {
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return d;
+  };
+
+  const addUtcDays = (base: Date, days: number): Date => {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d;
+  };
+
+  const todayIso = () => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    return formatIsoDate(d);
+  };
+
+  const yesterdayIso = () => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return formatIsoDate(d);
+  };
+
+  const buildValidDto = (overrides: Partial<CreateAlertDto> = {}): CreateAlertDto => {
+    const monday = getFutureMonday();
+    const nextMonday = addUtcDays(monday, 7);
+    return {
+      originIata: 'MAD',
+      destinationIata: 'LON',
+      departureDay: 1,
+      returnDay: 3,
+      adults: 1,
+      directOnly: true,
+      maxPriceEur: 120,
+      startDate: `${formatIsoDate(monday)}T00:00:00.000Z`,
+      endDate: `${formatIsoDate(nextMonday)}T23:59:59.999Z`,
+      ...overrides,
+    };
+  };
 
   describe('POST /alerts (create)', () => {
+    it('should reject when startDate is before the current day (yesterday)', async () => {
+      const futureEnd = addUtcDays(getFutureMonday(), 7);
+      const dto = buildValidDto({
+        startDate: `${yesterdayIso()}T00:00:00.000Z`,
+        endDate: `${formatIsoDate(futureEnd)}T23:59:59.999Z`,
+      });
+
+      await expect(controller.create(mockReq, dto)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.alert.create).not.toHaveBeenCalled();
+      expect(mockScheduler.enqueueAlert).not.toHaveBeenCalled();
+    });
+
+    it('should allow when startDate is today and a valid future tuple fits in range', async () => {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const end = addUtcDays(today, 14);
+      const dto = buildValidDto({
+        startDate: `${todayIso()}T00:00:00.000Z`,
+        endDate: `${formatIsoDate(end)}T23:59:59.999Z`,
+      });
+
+      const created = await controller.create(mockReq, dto);
+      expect(created.id).toBe('alert-1');
+      expect(mockPrisma.alert.create).toHaveBeenCalled();
+    });
+
     it('should reject when originIata and destinationIata are the same airport (case-insensitive)', async () => {
       const dto = buildValidDto({ originIata: 'MAD', destinationIata: 'mad' });
 
@@ -61,12 +122,13 @@ describe('AlertsController (Validación de búsquedas)', () => {
       expect(mockScheduler.enqueueAlert).not.toHaveBeenCalled();
     });
 
-    it('should reject when startDate and endDate fall on the same calendar day (e.g. 23/11/2026 -> 23/11/2026)', async () => {
+    it('should reject when startDate and endDate fall on the same calendar day', async () => {
+      const monday = formatIsoDate(getFutureMonday());
       const dto = buildValidDto({
         departureDay: 1,
         returnDay: 1,
-        startDate: '2026-11-23T00:00:00.000Z',
-        endDate: '2026-11-23T23:59:59.999Z',
+        startDate: `${monday}T00:00:00.000Z`,
+        endDate: `${monday}T23:59:59.999Z`,
       });
 
       await expect(controller.create(mockReq, dto)).rejects.toThrow(BadRequestException);
@@ -74,9 +136,11 @@ describe('AlertsController (Validación de búsquedas)', () => {
     });
 
     it('should reject when startDate is after endDate', async () => {
+      const monday = getFutureMonday();
+      const nextMonday = addUtcDays(monday, 7);
       const dto = buildValidDto({
-        startDate: '2026-11-30T00:00:00.000Z',
-        endDate: '2026-11-23T23:59:59.999Z',
+        startDate: `${formatIsoDate(nextMonday)}T00:00:00.000Z`,
+        endDate: `${formatIsoDate(monday)}T23:59:59.999Z`,
       });
 
       await expect(controller.create(mockReq, dto)).rejects.toThrow(BadRequestException);
@@ -84,12 +148,14 @@ describe('AlertsController (Validación de búsquedas)', () => {
     });
 
     it('should reject when no valid departure/return date pair fits inside the date range', async () => {
-      // 2026-11-23 es lunes y 2026-11-24 es martes; Lunes -> Lunes necesita 7 días (vuelta 2026-11-30 fuera de rango)
+      // Lunes -> Lunes necesita 7 días; un rango de Lunes a Martes no contiene vuelta válida
+      const monday = getFutureMonday();
+      const tuesday = addUtcDays(monday, 1);
       const dto = buildValidDto({
         departureDay: 1,
         returnDay: 1,
-        startDate: '2026-11-23T00:00:00.000Z',
-        endDate: '2026-11-24T23:59:59.999Z',
+        startDate: `${formatIsoDate(monday)}T00:00:00.000Z`,
+        endDate: `${formatIsoDate(tuesday)}T23:59:59.999Z`,
       });
 
       await expect(controller.create(mockReq, dto)).rejects.toThrow(BadRequestException);
@@ -97,13 +163,15 @@ describe('AlertsController (Validación de búsquedas)', () => {
     });
 
     it('should allow a valid search with distinct airports and valid multi-day date range', async () => {
+      const monday = getFutureMonday();
+      const nextMonday = addUtcDays(monday, 7);
       const dto = buildValidDto({
         originIata: 'mad',
         destinationIata: 'lon',
         departureDay: 1,
         returnDay: 1,
-        startDate: '2026-11-23T00:00:00.000Z',
-        endDate: '2026-11-30T23:59:59.999Z',
+        startDate: `${formatIsoDate(monday)}T00:00:00.000Z`,
+        endDate: `${formatIsoDate(nextMonday)}T23:59:59.999Z`,
       });
 
       const created = await controller.create(mockReq, dto);
@@ -147,9 +215,21 @@ describe('AlertsController (Validación de búsquedas)', () => {
     });
 
     it('should reject updating an alert to a same-day date range', async () => {
+      const monday = formatIsoDate(getFutureMonday());
       const dto = buildValidDto({
-        startDate: '2026-11-23T00:00:00.000Z',
-        endDate: '2026-11-23T23:59:59.999Z',
+        startDate: `${monday}T00:00:00.000Z`,
+        endDate: `${monday}T23:59:59.999Z`,
+      });
+
+      await expect(controller.update(mockReq, 'alert-1', dto)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.alert.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject updating an alert to a startDate before today', async () => {
+      const futureEnd = addUtcDays(getFutureMonday(), 7);
+      const dto = buildValidDto({
+        startDate: `${yesterdayIso()}T00:00:00.000Z`,
+        endDate: `${formatIsoDate(futureEnd)}T23:59:59.999Z`,
       });
 
       await expect(controller.update(mockReq, 'alert-1', dto)).rejects.toThrow(BadRequestException);
@@ -250,12 +330,25 @@ describe('AlertsController (Validación de búsquedas)', () => {
       expect(JSON.stringify(errors)).toContain('no pueden ser el mismo');
     });
 
-    it('should fail DTO validation when startDate and endDate are on the same calendar day', async () => {
+    it('should fail DTO validation when startDate is earlier than today', async () => {
       const dto = plainToInstance(
         CreateAlertDto,
         buildValidDto({
-          startDate: '2026-11-23T00:00:00.000Z',
-          endDate: '2026-11-23T23:59:59.999Z',
+          startDate: `${yesterdayIso()}T00:00:00.000Z`,
+        }),
+      );
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(JSON.stringify(errors)).toContain('anterior al día actual');
+    });
+
+    it('should fail DTO validation when startDate and endDate are on the same calendar day', async () => {
+      const monday = formatIsoDate(getFutureMonday());
+      const dto = plainToInstance(
+        CreateAlertDto,
+        buildValidDto({
+          startDate: `${monday}T00:00:00.000Z`,
+          endDate: `${monday}T23:59:59.999Z`,
         }),
       );
       const errors = await validate(dto);

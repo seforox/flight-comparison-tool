@@ -21,10 +21,13 @@ Para desacoplar el núcleo de negocio de las herramientas externas, `apps/api/sr
   - `FlightSearchProcessorService`: Evalúa precios y filtro de escalas (`directOnly`), persiste coincidencias (`Match`) y dispara notificaciones.
   - `AlertSchedulerService`: Planificador Cron, gestor de recordatorios de alertas disparadas (`pendingCompletionPrompt`), encolador y cancelador de trabajos en BullMQ.
   - `AlertParserAgentService` y carpeta `skills/` (`defined-search/SKILL.md` y `destination-recommender/SKILL.md`): Agente conversacional Multi-Skill ("Vera") con verificación de vuelos directos y clarificación de presupuesto por pasajero o total.
-  - Controladores REST (`AlertsController`, `AuthController`, `AgentController`, `AirportsController`).
+  - Controladores REST (`AlertsController`, `AuthController`, `AgentController`, `AirportsController`, `HealthController`).
 - **`infrastructure/` (Adaptadores concretos):**
   - `IgnavAdapter` y `ignav.mocks.ts` (búsqueda de vuelos reales y simulados).
   - `TelegramAdapter` (notificaciones push vía Telegraf).
   - `PrismaService` (acceso a datos en PostgreSQL).
   - `FlightSearchWorker` (consumidor BullMQ con control de tasa).
-  - `JwtStrategy`, `JwtAuthGuard` y `TokenBlacklistService` (seguridad y cierre de sesión en Redis).
+  - `JwtStrategy`, `JwtAuthGuard`, `TokenBlacklistService` y `ApiGatewayGuard` (seguridad, cierre de sesión en Redis y protección opcional de gateway).
+
+## 4. Arquitectura de Producción (Vercel + Railway)
+Para el entorno real de producción, el frontend (`apps/web`) se despliega en **Vercel** (incluyendo proxy BFF `/api/proxy/[...path]` y `src/proxy.ts` de acceso privado), mientras que el backend (`apps/api`, `apps/api/Dockerfile` y `railway.json`) junto con PostgreSQL 15 y Redis 7 corren de forma persistente en **Railway**. Consulta el detalle completo en [`10-despliegue-produccion-y-acceso-privado.md`](./10-despliegue-produccion-y-acceso-privado.md).
