@@ -14,8 +14,8 @@ Proyecto desarrollado como **Trabajo de Fin de Máster (TFM)** en Desarrollo de 
 |---|---|
 | **Aplicación desplegada (Producción)** | [https://flight-comparison-tool.vercel.app/](https://flight-comparison-tool.vercel.app/) *(requiere parámetro `?key=...` de acceso privado; la clave de invitación se adjunta en el formulario de entrega de BigSchool)* |
 | **Repositorio público (GitHub)** | [https://github.com/seforox/flight-comparison-tool](https://github.com/seforox/flight-comparison-tool) |
-| **Presentación (Slides)** | `<!-- TODO: Añadir URL pública de Google Slides / Canva / PowerPoint o enlazar archivo adjunto (ej. ./docs/presentacion-v-flights.pdf) -->` _[Enlace pendiente de añadir]_ |
-| **Vídeo explicativo (con captura de pantalla)** | `<!-- TODO: Añadir URL pública de YouTube / Google Drive con la explicación y captura de pantalla -->` _[Enlace pendiente de añadir]_ |
+| **Presentación (Slides)** | [https://docs.google.com/presentation/d/1GK2zMz-uGHmlkwsic9vGDZWg8XTgO4mLeW2YVIe0F7c/edit?usp=sharing](https://docs.google.com/presentation/d/1GK2zMz-uGHmlkwsic9vGDZWg8XTgO4mLeW2YVIe0F7c/edit?usp=sharing) |
+| **Vídeo explicativo (con captura de pantalla)** |[https://www.youtube.com/watch?v=TLi21pkfTI8](https://www.youtube.com/watch?v=TLi21pkfTI8) |
 
 ---
 
@@ -214,12 +214,10 @@ Algunas capacidades pensadas para la evolución del producto se han dejado fuera
 ## Presentación y Vídeo Explicativo
 
 ### Slides del Proyecto
-> `<!-- TODO: Sustituir por el enlace público a Google Slides / PowerPoint / Canva o subir el documento a ./docs/ y enlazarlo aquí -->`
-- **Enlace a la presentación:** _[Añadir URL pública de las slides o ruta al archivo en el repositorio]_
+- **Enlace a la presentación:** _[https://docs.google.com/presentation/d/1GK2zMz-uGHmlkwsic9vGDZWg8XTgO4mLeW2YVIe0F7c/edit?usp=sharing]_
 
 ### Vídeo Explicativo (con captura de pantalla)
-> `<!-- TODO: Sustituir por el enlace público a YouTube / Google Drive -->`
-- **Enlace al vídeo demostrativo:** _[Añadir URL pública del vídeo con la explicación del proyecto y captura de pantalla]_
+- **Enlace al vídeo demostrativo:** _[https://www.youtube.com/watch?v=TLi21pkfTI8]_
 
 ---
 
